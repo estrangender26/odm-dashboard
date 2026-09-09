@@ -137,6 +137,7 @@ export const TRENDS_PANELS: Array<{
     key: "budgetSpend",
     title: "Budget Spend (%)",
     series: [
+      { role: "monthly", source: "budgetSpendMonthly" },
       { role: "ytd", source: "budgetSpend" },
       { role: "const", value: 95 },
       { role: "const", value: 105 },
@@ -147,6 +148,7 @@ export const TRENDS_PANELS: Array<{
     key: "pmCmWorkOrderRatio",
     title: "PM:CM WO (%)",
     series: [
+      { role: "monthly", source: "pmCmWorkOrderRatioMonthly" },
       { role: "ytd", source: "pmCmWorkOrderRatio" },
       { role: "const", value: 86 },
     ],
@@ -156,6 +158,7 @@ export const TRENDS_PANELS: Array<{
     key: "pmCmCostRatio",
     title: "PM:CM Cost (%)",
     series: [
+      { role: "monthly", source: "pmCmCostRatioMonthly" },
       { role: "ytd", source: "pmCmCostRatio" },
       { role: "const", value: 80 },
     ],
@@ -164,7 +167,10 @@ export const TRENDS_PANELS: Array<{
     id: 5,
     key: "mttrDays",
     title: "MTTR (Days)",
-    series: [{ role: "ytd", source: "mttrDays" }],
+    series: [
+      { role: "monthly", source: "mttrDaysMonthly" },
+      { role: "ytd", source: "mttrDays" },
+    ],
   },
   {
     id: 6,
@@ -530,10 +536,60 @@ function updateTrendsSlide(
   }
 }
 
+const TREND_MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+  "Sep", "Oct", "Nov", "Dec",
+];
+
+/**
+ * When a trend panel needs a "Monthly Actual" series but the donor chart only
+ * carries the YTD/benchmark line series, add one up-front. The new series is a
+ * deep clone of an existing series (full formatting preserved) relabelled
+ * "Monthly Actual" and inserted FIRST so legend order matches panel.series.
+ * Its cached values are written by replaceSeriesCache below.
+ */
+function ensureMonthlySeriesOnChart(
+  doc: XmlDocument,
+  panel: (typeof TRENDS_PANELS)[number]
+): void {
+  const expected = panel.series.length;
+  if (!panel.series.some((spec) => spec.role === "monthly")) return;
+  // Count series across the WHOLE chart (a bar chart + line chart combo may
+  // already own the monthly series, e.g. PM Compliance / Facility Uptime).
+  const allSeriesColl = doc.getElementsByTagNameNS(CHART_NS, "ser");
+  if (allSeriesColl.length >= expected) return;
+  const container =
+    cElements(doc, "lineChart")[0] ?? cElements(doc, "barChart")[0];
+  if (!container) return;
+  let sers = cElements(container, "ser");
+  if (sers.length === 0) return;
+
+  const monthly = sers[0].cloneNode(true) as XmlElement;
+  // Legend label: "Monthly Actual".
+  const txCache = cElements(monthly, "strCache")[0];
+  const txPt = txCache ? cElements(txCache, "pt")[0] : null;
+  if (txPt) {
+    removeChildElements(txPt, "v");
+    txPt.appendChild(cText(monthly.ownerDocument as XmlDocument, "Monthly Actual"));
+  }
+  container.insertBefore(monthly, container.firstChild);
+
+  sers = cElements(container, "ser");
+  sers.forEach((ser, index) => {
+    const idxEl = cElements(ser, "idx")[0];
+    const orderEl = cElements(ser, "order")[0];
+    if (idxEl) idxEl.setAttribute("val", String(index));
+    if (orderEl) orderEl.setAttribute("val", String(index));
+  });
+}
+
 /**
  * Rewrite one chart part's cached categories + series values for a BU.
- * Months with no actual data are not fabricated: their value point is simply
- * omitted (a chart gap), and lagging BUs simply have fewer category points.
+ *
+ * CATEGORIES ARE CALENDAR-ALIGNED: every chart shows months 1 .. effective
+ * reporting month with its real calendar label (Jan..Aug for an August
+ * presentation). A month with no data keeps its position and simply has no
+ * value point (a gap) - values are NEVER compacted toward the chart start.
  */
 export function rewriteTrendChartCache(
   chartXml: string,
@@ -541,15 +597,26 @@ export function rewriteTrendChartCache(
   section: BusinessUnitDeckSection
 ): string {
   const doc = parseXml(chartXml);
+  ensureMonthlySeriesOnChart(doc, panel);
+
   const points = section.trends;
-  const categories = points.map((p) => p.monthLabel);
+  const byMonth = new Map(points.map((point) => [point.month, point]));
+  const effectiveMonth = section.reportingMonth;
+  const categories: string[] = [];
+  const months: number[] = [];
+  for (let month = 1; month <= effectiveMonth; month += 1) {
+    categories.push(TREND_MONTH_LABELS[month - 1] ?? String(month));
+    months.push(month);
+  }
 
   const sers = cElements(doc, "ser");
   for (let i = 0; i < sers.length; i++) {
     const spec = panel.series[i];
     if (!spec) continue;
-    const values = points.map((point) => {
+    const values = months.map((month) => {
       if (spec.role === "const") return spec.value;
+      const point = byMonth.get(month);
+      if (!point) return null;
       const raw = point[spec.source] as number | null | undefined;
       return isPresentNumber(raw) ? Math.round(raw * 100) / 100 : null;
     });

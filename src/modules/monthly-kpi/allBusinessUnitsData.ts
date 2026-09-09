@@ -22,6 +22,7 @@
 import {
   aggregateMonthlyKpiRecords,
   computeMonthlyKpiValuesFromRaw,
+  type MonthlyKpiKey,
   normalizeBusinessUnitLabel,
   normalizeKpiNumber,
   resolveEffectiveReportingMonth,
@@ -114,6 +115,12 @@ export interface BusinessUnitTrendPoint {
   pmCmWorkOrderRatio: number | null;
   pmCmCostRatio: number | null;
   mttrDays: number | null;
+  // MONTHLY ACTUAL (standalone value of that calendar month, from the BU's
+  // authoritative monthly record - never a copy of the YTD series).
+  budgetSpendMonthly: number | null;
+  pmCmWorkOrderRatioMonthly: number | null;
+  pmCmCostRatioMonthly: number | null;
+  mttrDaysMonthly: number | null;
   // Group B - monthly standalone actual.
   pmComplianceMonthly: number | null;
   facilityUptimeMonthly: number | null;
@@ -268,15 +275,40 @@ function kpiIsPresentForRecord(
   return raw[key] !== undefined && raw[key] !== null;
 }
 
-function standaloneMonthlyKpis(record: PersistedMonthlyKpiRecord | null) {
-  if (!record) return { pmCompliance: null, facilityUptime: null };
+const KPI_STORED_FIELD: Record<ScorecardKpiKey2, keyof PersistedMonthlyKpiRecord> = {
+  pmCompliance: "pm_compliance",
+  budgetSpend: "budget_spend",
+  pmCmWorkOrderRatio: "pm_cm_work_order_ratio",
+  pmCmCostRatio: "pm_cm_cost_ratio",
+  facilityUptime: "facility_uptime",
+  mttrDays: "mttr_days",
+};
+
+/**
+ * Authoritative MONTHLY ACTUAL values for one BU/month record (the standalone
+ * value of that calendar month). Raw inputs are converted with the same
+ * monthly formulas as the module; a stored imported value is used when raw
+ * inputs are absent. Never a copy of the cumulative/YTD value.
+ */
+function monthlyKpiValuesForRecord(record: PersistedMonthlyKpiRecord | null) {
+  const empty = {
+    pmCompliance: null,
+    budgetSpend: null,
+    pmCmWorkOrderRatio: null,
+    pmCmCostRatio: null,
+    facilityUptime: null,
+    mttrDays: null,
+  } as Record<ScorecardKpiKey2, number | null>;
+  if (!record) return empty;
   const computed = computeMonthlyKpiValuesFromRaw(record);
-  const storedPm = normalizeKpiNumber(record.pm_compliance);
-  const storedUptime = normalizeKpiNumber(record.facility_uptime);
-  return {
-    pmCompliance: computed.pmCompliance ?? storedPm,
-    facilityUptime: computed.facilityUptime ?? storedUptime,
-  };
+  const result = { ...empty };
+  for (const key of SCORECARD_KPI_KEYS) {
+    const stored = normalizeKpiNumber(
+      record[KPI_STORED_FIELD[key] as keyof PersistedMonthlyKpiRecord] as number | string | null
+    );
+    result[key] = computed[key as MonthlyKpiKey] ?? stored;
+  }
+  return result;
 }
 
 /**
@@ -436,7 +468,7 @@ export function buildAllBusinessUnitsDeckData(
         reportingYear,
         month
       );
-      const standalone = standaloneMonthlyKpis(record);
+      const monthlyValues = monthlyKpiValuesForRecord(record);
       trends.push({
         month,
         monthLabel: SHORT_MONTH_NAMES[month - 1] ?? String(month),
@@ -446,8 +478,12 @@ export function buildAllBusinessUnitsDeckData(
           : null,
         pmCmCostRatio: monthlyAggregate ? monthlyAggregate.pmCmCostRatio : null,
         mttrDays: monthlyAggregate ? monthlyAggregate.mttrDays : null,
-        pmComplianceMonthly: standalone.pmCompliance,
-        facilityUptimeMonthly: standalone.facilityUptime,
+        budgetSpendMonthly: monthlyValues.budgetSpend,
+        pmCmWorkOrderRatioMonthly: monthlyValues.pmCmWorkOrderRatio,
+        pmCmCostRatioMonthly: monthlyValues.pmCmCostRatio,
+        mttrDaysMonthly: monthlyValues.mttrDays,
+        pmComplianceMonthly: monthlyValues.pmCompliance,
+        facilityUptimeMonthly: monthlyValues.facilityUptime,
         pmComplianceYtdAverage: monthlyAggregate
           ? monthlyAggregate.pmCompliance
           : null,

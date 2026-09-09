@@ -103,18 +103,7 @@ function readoutParagraphTexts(xml: string): string[] {
   return texts;
 }
 
-function readoutSectionWordCounts(texts: string[]): { ec: number; ma: number; ecBullets: number; maBullets: number } {
-  const word = (t: string) => (t ? t.trim().split(/\s+/).length : 0);
-  const maIdx = texts.indexOf("MANAGEMENT ASSESSMENT");
-  const ecBullets = maIdx > 0 ? texts.slice(1, maIdx) : [];
-  const maBullets = maIdx > 0 ? texts.slice(maIdx + 1) : [];
-  return {
-    ec: ecBullets.reduce((a, b) => a + word(b), 0),
-    ma: maBullets.reduce((a, b) => a + word(b), 0),
-    ecBullets: ecBullets.length,
-    maBullets: maBullets.length,
-  };
-}
+
 
 function createTestDataForMonth(
   reportingMonth: number,
@@ -455,13 +444,11 @@ describe("generateMonthlyKpiPresentation", () => {
     const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
     const readout = readoutParagraphTexts(xml);
     expect(readout).toEqual(expected);
-    const counts = readoutSectionWordCounts(readout);
-    expect(counts.ecBullets).toBeLessThanOrEqual(2);
-    expect(counts.maBullets).toBeLessThanOrEqual(2);
-    expect(counts.ec).toBeLessThanOrEqual(45);
-    expect(counts.ma).toBeLessThanOrEqual(45);
-    expect(readout).toContain("EXECUTIVE COMMENTARY");
-    expect(readout).toContain("MANAGEMENT ASSESSMENT");
+    expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
+    expect(readout).not.toContain("MANAGEMENT ASSESSMENT");
+    expect(readout.length - 1).toBeLessThanOrEqual(3);
+    for (const b of readout.slice(1)) expect(b.trim().split(/\s+/).length).toBeLessThanOrEqual(55);
+    expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
     expect(xml).not.toContain("Notes / Commentary");
     expect(xml).not.toContain("No commentary submitted.");
     expect(xml).not.toContain("No situation submitted.");
@@ -480,13 +467,11 @@ describe("generateMonthlyKpiPresentation", () => {
     const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
     const readout = readoutParagraphTexts(xml);
     expect(readout).toEqual(expected);
-    const counts = readoutSectionWordCounts(readout);
-    expect(counts.ecBullets).toBeLessThanOrEqual(2);
-    expect(counts.maBullets).toBeLessThanOrEqual(2);
-    expect(counts.ec).toBeLessThanOrEqual(45);
-    expect(counts.ma).toBeLessThanOrEqual(45);
-    expect(readout).toContain("EXECUTIVE COMMENTARY");
-    expect(readout).toContain("MANAGEMENT ASSESSMENT");
+    expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
+    expect(readout).not.toContain("MANAGEMENT ASSESSMENT");
+    expect(readout.length - 1).toBeLessThanOrEqual(3);
+    for (const b of readout.slice(1)) expect(b.trim().split(/\s+/).length).toBeLessThanOrEqual(55);
+    expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
     expect(xml).not.toContain("No situation submitted.");
     expect(xml).not.toContain("No commentary submitted.");
     expect(xml).not.toContain("Key exceptions:");
@@ -505,13 +490,11 @@ describe("generateMonthlyKpiPresentation", () => {
     const expected = expectedDerivedReadout(data, "CWC");
     const readout = readoutParagraphTexts(xml);
     expect(readout).toEqual(expected);
-    const counts = readoutSectionWordCounts(readout);
-    expect(counts.ecBullets).toBeLessThanOrEqual(2);
-    expect(counts.maBullets).toBeLessThanOrEqual(2);
-    expect(counts.ec).toBeLessThanOrEqual(45);
-    expect(counts.ma).toBeLessThanOrEqual(45);
-    expect(readout).toContain("EXECUTIVE COMMENTARY");
-    expect(readout).toContain("MANAGEMENT ASSESSMENT");
+    expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
+    expect(readout).not.toContain("MANAGEMENT ASSESSMENT");
+    expect(readout.length - 1).toBeLessThanOrEqual(3);
+    for (const b of readout.slice(1)) expect(b.trim().split(/\s+/).length).toBeLessThanOrEqual(55);
+    expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
     expect(xml).not.toContain("Key exceptions:");
     expect(xml).not.toContain("Replacement of filters");
     expect(xml).not.toContain("Transformer overhaul");
@@ -555,11 +538,10 @@ describe("generateMonthlyKpiPresentation", () => {
       const expected = expectedDerivedReadout(data, selectedName);
       const readout = readoutParagraphTexts(slides[0]);
       expect(readout).toEqual(expected);
-      const counts = readoutSectionWordCounts(readout);
-      expect(counts.ecBullets).toBeLessThanOrEqual(2);
-      expect(counts.maBullets).toBeLessThanOrEqual(2);
-      expect(counts.ec).toBeLessThanOrEqual(45);
-      expect(counts.ma).toBeLessThanOrEqual(45);
+      expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
+      expect(readout).not.toContain("MANAGEMENT ASSESSMENT");
+      expect(readout.length - 1).toBeLessThanOrEqual(3);
+      for (const b of readout.slice(1)) expect(b.trim().split(/\s+/).length).toBeLessThanOrEqual(55);
       expect(allXml).not.toContain("Notes / Commentary");
       expect(allXml).not.toContain("No situation submitted.");
 
@@ -631,9 +613,8 @@ describe("generateMonthlyKpiPresentation", () => {
         });
       }
 
-      const headingNames = new Set(["EXECUTIVE COMMENTARY", "MANAGEMENT ASSESSMENT"]);
-      const headings = runs.filter((r) => headingNames.has(r.text));
-      expect(headings.length).toBe(2);
+      const headings = runs.filter((r) => r.text === "EXECUTIVE COMMENTARY");
+      expect(headings.length).toBe(1);
       for (const h of headings) {
         expect(h.buNone).toBe(true);
         expect(h.buChar).toBe(false);
@@ -650,7 +631,7 @@ describe("generateMonthlyKpiPresentation", () => {
       expect(runs.map((r) => r.text)).toEqual(expectedDerivedReadout(data, fixture.bu));
 
       // Every non-heading line is a formatted bullet.
-      const bullets = runs.filter((r) => !headingNames.has(r.text));
+      const bullets = runs.filter((r) => r.text !== "EXECUTIVE COMMENTARY");
       expect(bullets.length).toBeGreaterThanOrEqual(1);
       for (const b of bullets) {
         expect(b.buNone).toBe(false);
@@ -738,11 +719,10 @@ describe("generateMonthlyKpiPresentation", () => {
     const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
     const readout = readoutParagraphTexts(xml);
     expect(readout).toEqual(expected);
-    // Concise positive executive line - it does NOT narrate every KPI.
-    expect(readout.join(" ")).toContain("on target");
+    // All-green BU: single neutral line, nothing narrated per KPI.
+    expect(readout[1]).toContain("No below-target KPIs");
     expect(readout.join(" ").length).toBeLessThan(220);
-    expect(readout).toContain("EXECUTIVE COMMENTARY");
-    expect(readout).toContain("MANAGEMENT ASSESSMENT");
+    expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
     expect(xml).not.toContain("No commentary submitted.");
     expect(xml).not.toContain("No situation submitted.");
     expect(xml).not.toContain("Key exceptions:");
@@ -771,12 +751,10 @@ describe("generateMonthlyKpiPresentation", () => {
     const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
     const readout = readoutParagraphTexts(xml);
     expect(readout).toEqual(expected);
-    // Exceptions surface from KPI data; management wording stays
-    // evidence-safe (recovery/validation language, never invented causes).
-    expect(readout[1]).toMatch(/below target/);
-    expect(readout.join(" ")).toMatch(/Validate|Recovery|Prioritize|Investigate/);
-    expect(readout).toContain("EXECUTIVE COMMENTARY");
-    expect(readout).toContain("MANAGEMENT ASSESSMENT");
+    // Below-target KPIs without BU explanation are not explained/invented.
+    expect(readout[1]).toContain("No explanation was provided by the BU");
+    expect(readout.join(" ")).not.toMatch(/\bValidate\b|Prioritize|Strengthen|Monitor/);
+    expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
     expect(xml).not.toContain("Key exceptions:");
     expect(xml).not.toContain("No commentary submitted.");
     expect(xml).not.toContain("No situation submitted.");
