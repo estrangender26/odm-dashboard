@@ -164,6 +164,12 @@ function getSlide12KpiFillColor(
 
 function formatPrecisePercent(value: number): string {
   if (Number.isInteger(value)) return `${value}%`;
+  // Never render a value that is below 100 as "100%": a 99.996% result would
+  // round to 100.00 at 2 decimals yet must still be seen as below the =100%
+  // target. In that case keep the full authoritative precision instead.
+  if (value < 100 && value.toFixed(2) === "100.00") {
+    return `${value}%`;
+  }
   const s = value.toFixed(2).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
   return `${s}%`;
 }

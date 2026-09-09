@@ -316,3 +316,31 @@ describe("commentary period/value context (follow-up after PR #424)", () => {
     expect(bullets).toEqual([]);
   });
 });
+
+function cwcInput() {
+  return {
+    businessUnit: "CWC",
+    monthLabel: "August 2026",
+    reportingMonth: 8,
+    notes: "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
+    situation: null,
+    values: { pmCompliance: 100, budgetSpend: 80.49, pmCmWorkOrderRatio: 99.7, pmCmCostRatio: 83.36, mttrDays: 2.27, facilityUptime: 99.89 },
+    monthlyValues: { budgetSpend: 132.646086391792 },
+  } as unknown as ExecutiveReadoutInput;
+}
+
+it("D-edge: monthly value missing/not failing + YTD fails + Note exists -> YTD context", () => {
+  const input = cwcInput();
+  (input.monthlyValues as Record<string, number | null>).budgetSpend = 100; // monthly passes
+  input.values = { ...(input.values as Record<string, number | null>), budgetSpend: 80.49 };
+  const bullets = sections(buildExecutiveReadoutLines(input)).bullets;
+  expect(bullets[0]).toMatch(/^Budget Spend — YTD: 80\.49% — Exceed budget/);
+});
+
+it("I-edge: a Note for a GREEN KPI never creates exception commentary", () => {
+  const input = cwcInput();
+  input.values = { ...(input.values as Record<string, number | null>), budgetSpend: 100 };
+  (input.monthlyValues as Record<string, number | null>).budgetSpend = 100;
+  const bullets = sections(buildExecutiveReadoutLines(input)).bullets;
+  expect(bullets.some((b) => b.startsWith("Budget Spend"))).toBe(false);
+});

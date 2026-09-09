@@ -1726,6 +1726,9 @@ describe("PM Compliance / Facility Uptime precision (follow-up after PR #424)", 
     expect(formatScorecardCell("pmCompliance", 100)).toBe("100%");
     expect(formatScorecardCell("facilityUptime", 99.96)).toBe("99.96%");
     expect(formatScorecardCell("facilityUptime", 99.5)).toBe("99.5%");
+    // 99.996% must NEVER display as 100% (it fails the =100% target).
+    expect(formatScorecardCell("facilityUptime", 99.996)).toBe("99.996%");
+    expect(formatScorecardCell("pmCompliance", 99.996)).toBe("99.996%");
   });
 
   it("target evaluation always uses the UNROUNDED value", () => {
