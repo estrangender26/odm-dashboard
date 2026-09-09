@@ -3,6 +3,8 @@ import JSZip from "jszip";
 import { generateMonthlyKpiPresentation } from "./templateGenerator";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
 import type { BusinessUnitScorecard, MonthlyKpiPresentation, ScorecardKpiKey } from "./types";
+import { parseXml } from "../executive-presentations/framework";
+import { isMonthlyKpiBodyPart } from "../executive-presentations/framework/presentationCleanup";
 
 const SCORECARD_KPI_KEYS: ScorecardKpiKey[] = [
   "pmCompliance",
@@ -1311,4 +1313,27 @@ it("single-BU deck contains no MTTR methodology paragraph and no reviewer-commen
   ).join("\n");
   expect(bodies).not.toContain("Calculation methodology is currently being realigned");
   expect(bodies).not.toContain("121 calendar days for SLA");
+});
+
+describe("generated single-BU deck OOXML integrity — no empty text bodies (PR #426 regression)", () => {
+  it("every p:txBody / p:notesTxBody on every slide and notes part has at least one a:p", async () => {
+    const blob = await generateMonthlyKpiPresentation(createTestData());
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const nsP = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    const nsA = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    const failures: string[] = [];
+    for (const name of Object.keys(zip.files)) {
+      if (!isMonthlyKpiBodyPart(name)) continue;
+      const xml = await zip.file(name)!.async("string");
+      const doc = parseXml(xml);
+      for (const local of ["txBody", "notesTxBody"]) {
+        const bodies = doc.getElementsByTagNameNS(nsP, local);
+        for (let i = 0; i < bodies.length; i++) {
+          const paragraphs = (bodies[i] as unknown as Element).getElementsByTagNameNS(nsA, "p");
+          if (paragraphs.length === 0) failures.push(`${name} ${local}#${i}`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
 });

@@ -6,6 +6,7 @@ import {
   normalizeStoredCommentary,
 } from "./allBusinessUnitsData";
 import { formatScorecardCell, generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
+import { isMonthlyKpiBodyPart } from "../executive-presentations/framework/presentationCleanup";
 import { evaluateKpiStatus, getDefaultMonthlyKpiThresholdConfig } from "./kpiThresholds";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
 import { parseXml } from "../executive-presentations/framework";
@@ -1739,5 +1740,40 @@ describe("PM Compliance / Facility Uptime precision (follow-up after PR #424)", 
     // PM Compliance >=98: 97.99 fails, 98.00 passes.
     expect(evaluateKpiStatus("pmCompliance", 97.99, cfg).status).toBe("amber");
     expect(evaluateKpiStatus("pmCompliance", 98, cfg).status).toBe("green");
+  });
+});
+
+describe("generated All-BU deck OOXML integrity — no empty text bodies (PR #426 regression)", () => {
+  async function emptyTextBodiesInParts(zip: JSZip): Promise<string[]> {
+    const nsP = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    const nsA = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    const out: string[] = [];
+    const names = Object.keys(zip.files).filter((n) => isMonthlyKpiBodyPart(n));
+    for (const name of names) {
+      const doc = parseXml(await zip.file(name)!.async("string"));
+      for (const local of ["txBody", "notesTxBody"]) {
+        const bodies = doc.getElementsByTagNameNS(nsP, local);
+        for (let i = 0; i < bodies.length; i++) {
+          const paragraphs = (bodies[i] as unknown as Element).getElementsByTagNameNS(nsA, "p");
+          if (paragraphs.length === 0) out.push(`${name} ${local}#${i}`);
+        }
+      }
+    }
+    return out;
+  }
+
+  it("every p:txBody / p:notesTxBody in every slide and notes part has at least one a:p", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    expect(await emptyTextBodiesInParts(zip)).toEqual([]);
+  });
+
+  it("legacy MTTR methodology note is fully removed from the generated deck", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const deckText = (await orderedSlideXml(zip)).map((s) => s.xml).join("\n");
+    expect(deckText).not.toContain("Calculation methodology");
   });
 });

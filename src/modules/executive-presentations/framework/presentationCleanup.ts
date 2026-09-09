@@ -19,6 +19,8 @@
  */
 
 import type JSZip from "jszip";
+import { createElementNS, getElementsByTagNameNS, parseXml, serializeXml } from "./xml";
+import type { XmlDocument, XmlElement } from "./types";
 
 const MTTR_METHODOLOGY_MARKER =
   "MTTR – Calculation methodology is currently being realigned";
@@ -43,23 +45,92 @@ function isCommentPartReference(target: string): boolean {
   );
 }
 
+/**
+ * Concatenated text of an <a:p> paragraph (all descendant <a:t> runs).
+ */
+function paragraphText(paragraph: XmlElement): string {
+  return getElementsByTagNameNS(paragraph, "a", "t")
+    .map((run) => run.textContent ?? "")
+    .join("");
+}
+
+/**
+ * Text bodies are <p:txBody> / <p:notesTxBody> elements whose children are
+ * drawingml <a:p> paragraphs. CT_TextBody requires at least one <a:p>, so a
+ * body must never be left empty after paragraph removal.
+ */
+function isTextBodyContainer(node: XmlElement): boolean {
+  const local = node.localName ?? node.nodeName.replace(/^.*:/, "");
+  return local === "txBody" || local === "notesTxBody";
+}
+
+function insertEmptyParagraph(body: XmlElement, doc: XmlDocument): void {
+  const paragraph = createElementNS(doc, "a", "p");
+  paragraph.appendChild(createElementNS(doc, "a", "endParaRPr"));
+  body.appendChild(paragraph);
+}
+
+/**
+ * Remove every <a:p> whose text contains the legacy MTTR methodology marker.
+ *
+ * Removal is done on the parsed XML tree (not raw string slicing). After each
+ * affected text body loses paragraphs it is guaranteed to still hold at least
+ * one <a:p> — when the marker paragraph was the ONLY paragraph, a minimal
+ * schema-valid empty paragraph (<a:p><a:endParaRPr/></a:p>, equivalent to
+ * PowerPoint's own repair) is appended. Unrelated paragraphs and shapes are
+ * never touched. Returns the original string when nothing was removed.
+ */
+function removeMttrMethodologyParagraphs(xml: string): string {
+  const doc = parseXml(xml);
+  const offenders = getElementsByTagNameNS(doc, "a", "p").filter((paragraph) =>
+    paragraphText(paragraph).includes(MTTR_METHODOLOGY_MARKER)
+  );
+  if (offenders.length === 0) return xml;
+
+  const affectedBodies = new Set<XmlElement>();
+  for (const paragraph of offenders) {
+    const parent = paragraph.parentNode as XmlElement | null;
+    if (!parent) continue;
+    parent.removeChild(paragraph);
+    if (isTextBodyContainer(parent)) affectedBodies.add(parent);
+  }
+  for (const body of affectedBodies) {
+    if (getElementsByTagNameNS(body, "a", "p").length === 0) {
+      insertEmptyParagraph(body, doc);
+    }
+  }
+  return serializeXml(doc);
+}
+
+/**
+ * Canonical Monthly KPI body parts that may carry slide/speaker-notes text:
+ *   - ppt/slides/slide1.xml          (drawingml slide bodies)
+ *   - ppt/notesSlides/notesSlide1.xml (speaker-notes bodies)
+ *
+ * Matching is explicit per canonical form so relationship parts
+ * (ppt/slides/_rels/slide1.xml.rels, …/notesSlide1.xml.rels), masters,
+ * layouts and any other package part are never selected.
+ */
+export function isMonthlyKpiBodyPart(name: string): boolean {
+  const base = name.replace(/^\//, "");
+  return (
+    /^ppt\/slides\/slide\d+\.xml$/.test(base) ||
+    /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(base)
+  );
+}
+
 export async function cleanMonthlyKpiPresentationZip(zip: JSZip): Promise<void> {
   const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
-  // 1) Drop the MTTR methodology paragraph from slide/notes bodies.
+  // 1) Drop the MTTR methodology paragraph from slide AND speaker-notes
+  //    bodies (both canonical slide/notesSlide part names). A body that
+  //    hosted the marker is never left with zero <a:p> children (see
+  //    removeMttrMethodologyParagraphs).
   for (const name of names) {
-    if (!/^ppt\/(slides|notesSlides)\/slide\d+\.xml$/.test(name)) continue;
+    if (!isMonthlyKpiBodyPart(name)) continue;
     const xml = await zip.file(name)!.async("string");
     if (!xml.includes(MTTR_METHODOLOGY_MARKER)) continue;
-    let next = xml;
-    do {
-      const markerIndex = next.indexOf(MTTR_METHODOLOGY_MARKER);
-      if (markerIndex < 0) break;
-      const paragraphStart = next.lastIndexOf("<a:p>", markerIndex);
-      const paragraphEnd = next.indexOf("</a:p>", markerIndex);
-      if (paragraphStart < 0 || paragraphEnd < 0) break;
-      next = next.slice(0, paragraphStart) + next.slice(paragraphEnd + "</a:p>".length);
-    } while (next.includes(MTTR_METHODOLOGY_MARKER));
-    if (next !== xml) zip.file(name, next);
+    const cleaned = removeMttrMethodologyParagraphs(xml);
+    if (cleaned !== xml) zip.file(name, cleaned);
   }
 
   // 2) Remove comment/commentAuthors parts.
