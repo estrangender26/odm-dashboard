@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
 import { XMLSerializer } from "@xmldom/xmldom";
-import { cleanMonthlyKpiPresentationZip } from "./presentationCleanup";
+import { cleanMonthlyKpiPresentationZip, isMonthlyKpiBodyPart } from "./presentationCleanup";
 import { getElementsByTagNameNS, parseXml } from "./xml";
 
 /**
@@ -103,6 +103,41 @@ function emptyTextBodies(xml: string): string[] {
   return empty;
 }
 
+/** Serialized <a:p> list across every <p:txBody> of the document. */
+function allBodyParagraphs(xml: string): string[] {
+  const doc = parseXml(xml);
+  const out: string[] = [];
+  for (const sp of getElementsByTagNameNS(doc, "p", "sp")) {
+    const body = getElementsByTagNameNS(sp, "p", "txBody")[0];
+    if (!body) continue;
+    for (const paragraph of getElementsByTagNameNS(body, "a", "p")) {
+      out.push(new XMLSerializer().serializeToString(paragraph));
+    }
+  }
+  return out;
+}
+
+describe("isMonthlyKpiBodyPart — canonical slide/notesSlide part selection", () => {
+  it("matches BOTH canonical forms: ppt/slides/slideN.xml and ppt/notesSlides/notesSlideN.xml", () => {
+    expect(isMonthlyKpiBodyPart("ppt/slides/slide1.xml")).toBe(true);
+    expect(isMonthlyKpiBodyPart("ppt/slides/slide15.xml")).toBe(true);
+    expect(isMonthlyKpiBodyPart("ppt/notesSlides/notesSlide1.xml")).toBe(true);
+    expect(isMonthlyKpiBodyPart("ppt/notesSlides/notesSlide3.xml")).toBe(true);
+  });
+
+  it("rejects relationship parts, masters, layouts and other package parts", () => {
+    expect(isMonthlyKpiBodyPart("ppt/slides/_rels/slide1.xml.rels")).toBe(false);
+    expect(isMonthlyKpiBodyPart("ppt/notesSlides/_rels/notesSlide1.xml.rels")).toBe(false);
+    expect(isMonthlyKpiBodyPart("ppt/notesSlides/notesSlide1.xml.rels")).toBe(false);
+    expect(isMonthlyKpiBodyPart("ppt/slideMasters/slideMaster1.xml")).toBe(false);
+    expect(isMonthlyKpiBodyPart("ppt/slideLayouts/slideLayout1.xml")).toBe(false);
+    expect(isMonthlyKpiBodyPart("ppt/presentation.xml")).toBe(false);
+    expect(isMonthlyKpiBodyPart("[Content_Types].xml")).toBe(false);
+    // Non-canonical spelling of the notes form must NOT match either.
+    expect(isMonthlyKpiBodyPart("ppt/notesSlides/slide1.xml")).toBe(false);
+  });
+});
+
 describe("cleanMonthlyKpiPresentationZip — MTTR methodology cleanup keeps every txBody schema-valid", () => {
   it("marker paragraph is removed; a single-paragraph body keeps one valid empty <a:p>", async () => {
     const zip = await runCleanup({
@@ -151,5 +186,66 @@ describe("cleanMonthlyKpiPresentationZip — MTTR methodology cleanup keeps ever
     const zip = await runCleanup({ "ppt/slides/slide1.xml": cleanSlide });
     const xml = await zip.file("ppt/slides/slide1.xml")!.async("string");
     expect(xml).toBe(cleanSlide);
+  });
+});
+
+function notesSlideXml(bodyParagraphs: string[]): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:notes xmlns:p="${P}" xmlns:a="${A}">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr/>
+      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="2" name="Notes Placeholder"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="6858000"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="square" anchor="t"><a:normAutofit/></a:bodyPr>
+          <a:lstStyle/>
+          ${bodyParagraphs.join("\n          ")}
+        </p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:notes>`;
+}
+
+describe("cleanMonthlyKpiPresentationZip — canonical ppt/notesSlides/notesSlideN.xml parts", () => {
+  it("processes notesSlide1.xml whose sole paragraph is the MTTR marker and keeps a valid empty <a:p>", async () => {
+    const zip = await runCleanup({
+      "ppt/notesSlides/notesSlide1.xml": notesSlideXml([markerParagraph]),
+    });
+    const xml = await zip.file("ppt/notesSlides/notesSlide1.xml")!.async("string");
+
+    // Part was actually processed: the marker paragraph is gone. Under the
+    // pre-correction matcher this part was never selected, so the marker
+    // stayed and this assertion failed.
+    expect(xml).not.toContain("Calculation methodology");
+
+    const paragraphs = allBodyParagraphs(xml);
+    expect(paragraphs.length).toBe(1);
+    expect(paragraphs[0]).toContain("<a:p");
+    expect(paragraphs[0]).toContain("<a:endParaRPr");
+    expect(paragraphs[0]).not.toContain("<a:t>");
+    expect(emptyTextBodies(xml)).toEqual([]);
+  });
+
+  it("leaves a marker-free notesSlide part completely unchanged", async () => {
+    const controlNotes = notesSlideXml([
+      `<a:p><a:r><a:t>Keep this speaker note verbatim.</a:t></a:r></a:p>`,
+    ]);
+    const zip = await runCleanup({
+      "ppt/notesSlides/notesSlide2.xml": controlNotes,
+    });
+    const xml = await zip.file("ppt/notesSlides/notesSlide2.xml")!.async("string");
+    expect(xml).toBe(controlNotes);
   });
 });

@@ -4,6 +4,7 @@ import { generateMonthlyKpiPresentation } from "./templateGenerator";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
 import type { BusinessUnitScorecard, MonthlyKpiPresentation, ScorecardKpiKey } from "./types";
 import { parseXml } from "../executive-presentations/framework";
+import { isMonthlyKpiBodyPart } from "../executive-presentations/framework/presentationCleanup";
 
 const SCORECARD_KPI_KEYS: ScorecardKpiKey[] = [
   "pmCompliance",
@@ -1322,7 +1323,7 @@ describe("generated single-BU deck OOXML integrity — no empty text bodies (PR 
     const nsA = "http://schemas.openxmlformats.org/drawingml/2006/main";
     const failures: string[] = [];
     for (const name of Object.keys(zip.files)) {
-      if (!/^ppt\/(slides|notesSlides)\/slide\d+\.xml$/.test(name)) continue;
+      if (!isMonthlyKpiBodyPart(name)) continue;
       const xml = await zip.file(name)!.async("string");
       const doc = parseXml(xml);
       for (const local of ["txBody", "notesTxBody"]) {

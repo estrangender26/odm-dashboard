@@ -6,6 +6,7 @@ import {
   normalizeStoredCommentary,
 } from "./allBusinessUnitsData";
 import { formatScorecardCell, generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
+import { isMonthlyKpiBodyPart } from "../executive-presentations/framework/presentationCleanup";
 import { evaluateKpiStatus, getDefaultMonthlyKpiThresholdConfig } from "./kpiThresholds";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
 import { parseXml } from "../executive-presentations/framework";
@@ -1747,9 +1748,7 @@ describe("generated All-BU deck OOXML integrity — no empty text bodies (PR #42
     const nsP = "http://schemas.openxmlformats.org/presentationml/2006/main";
     const nsA = "http://schemas.openxmlformats.org/drawingml/2006/main";
     const out: string[] = [];
-    const names = Object.keys(zip.files).filter((n) =>
-      /^ppt\/(slides|notesSlides)\/slide\d+\.xml$/.test(n)
-    );
+    const names = Object.keys(zip.files).filter((n) => isMonthlyKpiBodyPart(n));
     for (const name of names) {
       const doc = parseXml(await zip.file(name)!.async("string"));
       for (const local of ["txBody", "notesTxBody"]) {

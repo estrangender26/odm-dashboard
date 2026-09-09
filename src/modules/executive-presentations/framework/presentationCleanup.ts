@@ -102,13 +102,31 @@ function removeMttrMethodologyParagraphs(xml: string): string {
   return serializeXml(doc);
 }
 
+/**
+ * Canonical Monthly KPI body parts that may carry slide/speaker-notes text:
+ *   - ppt/slides/slide1.xml          (drawingml slide bodies)
+ *   - ppt/notesSlides/notesSlide1.xml (speaker-notes bodies)
+ *
+ * Matching is explicit per canonical form so relationship parts
+ * (ppt/slides/_rels/slide1.xml.rels, …/notesSlide1.xml.rels), masters,
+ * layouts and any other package part are never selected.
+ */
+export function isMonthlyKpiBodyPart(name: string): boolean {
+  const base = name.replace(/^\//, "");
+  return (
+    /^ppt\/slides\/slide\d+\.xml$/.test(base) ||
+    /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(base)
+  );
+}
+
 export async function cleanMonthlyKpiPresentationZip(zip: JSZip): Promise<void> {
   const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
-  // 1) Drop the MTTR methodology paragraph from slide/notes bodies. The body
-  //    that hosted it is never left with zero <a:p> children (see
+  // 1) Drop the MTTR methodology paragraph from slide AND speaker-notes
+  //    bodies (both canonical slide/notesSlide part names). A body that
+  //    hosted the marker is never left with zero <a:p> children (see
   //    removeMttrMethodologyParagraphs).
   for (const name of names) {
-    if (!/^ppt\/(slides|notesSlides)\/slide\d+\.xml$/.test(name)) continue;
+    if (!isMonthlyKpiBodyPart(name)) continue;
     const xml = await zip.file(name)!.async("string");
     if (!xml.includes(MTTR_METHODOLOGY_MARKER)) continue;
     const cleaned = removeMttrMethodologyParagraphs(xml);
