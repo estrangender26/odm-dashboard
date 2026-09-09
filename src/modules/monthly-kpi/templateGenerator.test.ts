@@ -1294,3 +1294,19 @@ describe("generateMonthlyKpiPresentation Slide 3 preserves original issue colors
     expect(getCellFillColor(slide3, 6, 6)).toBe("DDE6F0");
   });
 });
+
+it("single-BU deck contains no MTTR methodology paragraph and no reviewer-comment parts", async () => {
+  const blob = await generateMonthlyKpiPresentation(createTestData());
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+  expect(names.filter((n) => /ppt\/comments\//i.test(n) || /commentAuthors/i.test(n))).toEqual([]);
+  const bodies = (
+    await Promise.all(
+      names
+        .filter((n) => /^ppt\/(slides|notesSlides)\/slide\d+\.xml$/.test(n))
+        .map((n) => zip.file(n)!.async("string"))
+    )
+  ).join("\n");
+  expect(bodies).not.toContain("Calculation methodology is currently being realigned");
+  expect(bodies).not.toContain("121 calendar days for SLA");
+});

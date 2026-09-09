@@ -64,6 +64,7 @@ import {
   writeNotesSituationReadout,
 } from "../executive-presentations/framework/readoutText";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
+import { cleanMonthlyKpiPresentationZip } from "../executive-presentations/framework/presentationCleanup";
 import type { ReadoutLine } from "../executive-presentations/framework/readoutText";
 import type { ScorecardKpiKey } from "./types";
 import {
@@ -354,12 +355,26 @@ function updateScorecardSlide(
   const trendByMonth = new Map<number, BusinessUnitDeckSection["trends"][number]>();
   for (const point of section.trends) trendByMonth.set(point.month, point);
 
+  // STANDALONE-MONTH rows for the three corrected KPIs: Budget Spend,
+  // PM:CM Work Orders and PM:CM Cost use the authoritative standalone value of
+  // that individual calendar month (same source as the chart Monthly Actual
+  // bars). PM Compliance / Facility Uptime keep their existing monthly-standalone
+  // behavior; MTTR keeps its existing monthly/YTD semantics unchanged.
+  const standaloneMonthlyField: Record<string, keyof BusinessUnitDeckSection["trends"][number]> = {
+    budgetSpend: "budgetSpendMonthly",
+    pmCmWorkOrderRatio: "pmCmWorkOrderRatioMonthly",
+    pmCmCostRatio: "pmCmCostRatioMonthly",
+  };
   const valueAtMonth = (key: ScorecardKpiKey2, month: number): number | null => {
     const point = trendByMonth.get(month);
     if (!point) return null;
     if (key === "pmCompliance") return point.pmComplianceMonthly;
     if (key === "facilityUptime") return point.facilityUptimeMonthly;
-    return (point[key] as number | null) ?? null;
+    const standalone = standaloneMonthlyField[key];
+    if (standalone) {
+      return (point[standalone] as number | null) ?? null;
+    }
+    return (point[key] as number | null) ?? null; // MTTR: existing semantics
   };
 
   // Template provides rows 1-7 (Jan-Jul). Clone the last monthly template row
@@ -541,46 +556,92 @@ const TREND_MONTH_LABELS = [
   "Sep", "Oct", "Nov", "Dec",
 ];
 
+function axisIdValue(axis: XmlElement | undefined): number {
+  if (!axis) return 0;
+  const axId = cElements(axis, "axId")[0];
+  const value = axId ? Number(axId.getAttribute("val")) : NaN;
+  return Number.isFinite(value) ? value : 0;
+}
+
 /**
- * When a trend panel needs a "Monthly Actual" series but the donor chart only
- * carries the YTD/benchmark line series, add one up-front. The new series is a
- * deep clone of an existing series (full formatting preserved) relabelled
- * "Monthly Actual" and inserted FIRST so legend order matches panel.series.
- * Its cached values are written by replaceSeriesCache below.
+ * Ensure the shared chart grammar for ALL six panels:
+ *   MONTHLY ACTUAL = BAR/COLUMN
+ *   YTD / CUMULATIVE / YTD AVERAGE = LINE
+ *   BENCHMARK = LINE (where applicable)
+ *
+ * PM Compliance (chart 1) and Facility Uptime (chart 6) already use this
+ * grammar. Panels 2-5 (Budget / PM:CM WO / PM:CM Cost / MTTR) previously
+ * plotted only lines; this converts them into a barChart + lineChart combo:
+ * the Monthly Actual series becomes a clustered column series inside a
+ * <c:barChart> that shares the chart's category/value axes with the remaining
+ * YTD/benchmark <c:lineChart> series.
  */
-function ensureMonthlySeriesOnChart(
+function ensureMonthlyBarCombo(
   doc: XmlDocument,
   panel: (typeof TRENDS_PANELS)[number]
 ): void {
   const expected = panel.series.length;
   if (!panel.series.some((spec) => spec.role === "monthly")) return;
-  // Count series across the WHOLE chart (a bar chart + line chart combo may
-  // already own the monthly series, e.g. PM Compliance / Facility Uptime).
-  const allSeriesColl = doc.getElementsByTagNameNS(CHART_NS, "ser");
-  if (allSeriesColl.length >= expected) return;
-  const container =
-    cElements(doc, "lineChart")[0] ?? cElements(doc, "barChart")[0];
-  if (!container) return;
-  let sers = cElements(container, "ser");
-  if (sers.length === 0) return;
 
-  const monthly = sers[0].cloneNode(true) as XmlElement;
-  // Legend label: "Monthly Actual".
-  const txCache = cElements(monthly, "strCache")[0];
-  const txPt = txCache ? cElements(txCache, "pt")[0] : null;
-  if (txPt) {
-    removeChildElements(txPt, "v");
-    txPt.appendChild(cText(monthly.ownerDocument as XmlDocument, "Monthly Actual"));
+  // 1) If the chart does not yet own the monthly series, add it up-front as a
+  //    deep clone (full formatting preserved) relabelled "Monthly Actual".
+  const allColl = doc.getElementsByTagNameNS(CHART_NS, "ser");
+  const lineChart = cElements(doc, "lineChart")[0];
+  if (allColl.length < expected && lineChart) {
+    const lineSers = cElements(lineChart, "ser");
+    if (lineSers.length === 0) return;
+    const monthly = lineSers[0].cloneNode(true) as XmlElement;
+    const txCache = cElements(monthly, "strCache")[0];
+    const txPt = txCache ? cElements(txCache, "pt")[0] : null;
+    if (txPt) {
+      removeChildElements(txPt, "v");
+      txPt.appendChild(cText(monthly.ownerDocument as XmlDocument, "Monthly Actual"));
+    }
+    lineChart.insertBefore(monthly, lineChart.firstChild);
   }
-  container.insertBefore(monthly, container.firstChild);
 
-  sers = cElements(container, "ser");
-  sers.forEach((ser, index) => {
+  // 2) Convert Monthly Actual into a column series (barChart sharing the axes).
+  const plotArea = cElements(doc, "plotArea")[0];
+  const existingBar = cElements(doc, "barChart")[0];
+  if (!plotArea || !lineChart || existingBar) return;
+  const sersAfter = cElements(lineChart, "ser");
+  if (sersAfter.length === 0) return;
+  const monthlySer = sersAfter[0];
+  lineChart.removeChild(monthlySer);
+
+  const catVal = axisIdValue(cElements(doc, "catAx")[0]);
+  const numVal = axisIdValue(cElements(doc, "valAx")[0]);
+
+  const barChart = createCNs(doc, "barChart");
+  const barDir = createCNs(doc, "barDir");
+  barDir.setAttribute("val", "col");
+  barChart.appendChild(barDir);
+  const grouping = createCNs(doc, "grouping");
+  grouping.setAttribute("val", "clustered");
+  barChart.appendChild(grouping);
+  const varyColors = createCNs(doc, "varyColors");
+  varyColors.setAttribute("val", "0");
+  barChart.appendChild(varyColors);
+  barChart.appendChild(monthlySer);
+  const gapWidth = createCNs(doc, "gapWidth");
+  gapWidth.setAttribute("val", "150");
+  barChart.appendChild(gapWidth);
+  for (const id of [catVal, numVal]) {
+    const axId = createCNs(doc, "axId");
+    axId.setAttribute("val", String(id));
+    barChart.appendChild(axId);
+  }
+  plotArea.insertBefore(barChart, lineChart);
+
+  // 3) Renumber series idx/order across the whole chart.
+  const finalColl = doc.getElementsByTagNameNS(CHART_NS, "ser");
+  for (let index = 0; index < finalColl.length; index++) {
+    const ser = finalColl[index] as unknown as XmlElement;
     const idxEl = cElements(ser, "idx")[0];
     const orderEl = cElements(ser, "order")[0];
     if (idxEl) idxEl.setAttribute("val", String(index));
     if (orderEl) orderEl.setAttribute("val", String(index));
-  });
+  }
 }
 
 /**
@@ -597,7 +658,7 @@ export function rewriteTrendChartCache(
   section: BusinessUnitDeckSection
 ): string {
   const doc = parseXml(chartXml);
-  ensureMonthlySeriesOnChart(doc, panel);
+  ensureMonthlyBarCombo(doc, panel);
 
   const points = section.trends;
   const byMonth = new Map(points.map((point) => [point.month, point]));
@@ -752,6 +813,7 @@ export async function generateAllBusinessUnitsMonthlyKpiDeck(
     await removeSlidePart(zip, 2);
     await removeSlidePart(zip, 3);
     await setPresentationSlideOrder(zip, [1]);
+    await cleanMonthlyKpiPresentationZip(zip);
     return generatePptxBlob(zip);
   }
 
@@ -820,6 +882,7 @@ export async function generateAllBusinessUnitsMonthlyKpiDeck(
 
   const slideOrder = Array.from({ length: totalSlides }, (_, index) => index + 1);
   await setPresentationSlideOrder(zip, slideOrder);
-  return generatePptxBlob(zip);
+    await cleanMonthlyKpiPresentationZip(zip);
+return generatePptxBlob(zip);
 }
 
