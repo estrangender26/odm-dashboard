@@ -138,13 +138,13 @@ function cleanClause(clause: string): string {
   return body.trim().replace(/\s+/g, " ").replace(/[.;]+$/, "");
 }
 
-/** Deterministically find the submitted-Note clause relevant to one KPI. */
-function noteClauseForKpi(
-  notes: string | null,
+/** Deterministically find a source (Notes or Situation) clause relevant to one KPI. */
+function clauseForKpi(
+  source: string | null,
   key: ScorecardKpiKey
 ): string | null {
-  if (!notes) return null;
-  const clauses = splitClauses(notes);
+  if (!source) return null;
+  const clauses = splitClauses(source);
   const label = NOUN[key].toLowerCase();
   const labels = [label, label.replace(" ratio", "")];
   for (const clause of clauses) {
@@ -182,41 +182,45 @@ const MAX_EXCEPTION_BULLETS = 3;
  */
 export function buildExecutiveReadoutLines(input: ExecutiveReadoutInput): ReadoutLine[] {
   const kpis = buildExecutiveReadoutKpis(input.values);
-  const belowTarget = kpis
-    .filter((k) => k.status === "red" || k.status === "amber")
-    // MTTR has no authoritative below-target band - never an exception.
-    .filter((k) => k.key !== "mttrDays");
+  const qualifying = kpis.filter((k) => k.key !== "mttrDays"); // no MTTR band
+
+  // ACTUAL red-before-amber ordering (stable KPI order within each status).
+  const ordered = [
+    ...qualifying.filter((k) => k.status === "red"),
+    ...qualifying.filter((k) => k.status === "amber"),
+  ];
+  const belowTargetCount = ordered.length;
 
   const bullets: string[] = [];
-
-  // Red exceptions first, then amber (fixed key order preserved by filter).
-  for (const kpi of belowTarget) {
+  for (const kpi of ordered) {
     if (bullets.length >= MAX_EXCEPTION_BULLETS) break;
-    const explanation = noteClauseForKpi(input.notes, kpi.key);
-    if (explanation) {
-      bullets.push(`${NOUN[kpi.key]} — ${compressClause(explanation, 150)}`);
+    // Search BOTH authoritative sources per KPI: Notes then Situation.
+    const noteClause = clauseForKpi(input.notes, kpi.key);
+    const situationClause = clauseForKpi(input.situation, kpi.key);
+    if (!noteClause && !situationClause) continue; // no evidence -> no bullet
+
+    let explanation: string;
+    if (noteClause && situationClause) {
+      // Combine both only when both are relevant and the result stays short.
+      const combined = `${compressClause(noteClause, 120)} ${compressClause(situationClause, 120)}`;
+      explanation = compressClause(combined, 210);
+    } else {
+      explanation = compressClause(noteClause ?? situationClause!, 180);
     }
+    bullets.push(`${NOUN[kpi.key]} — ${explanation}`);
   }
 
-  if (belowTarget.length > 0 && bullets.length === 0 && input.situation) {
-    // BU provided a situation-level explanation but no per-KPI note clause.
-    bullets.push(`The BU situation note: ${compressClause(input.situation, 150)}`);
-  }
-
-  if (belowTarget.length > 0 && bullets.length === 0) {
+  if (bullets.length > 0) {
+    // Keep at most three exception bullets.
+    bullets.length = Math.min(bullets.length, MAX_EXCEPTION_BULLETS);
+  } else if (belowTargetCount > 0) {
     // Never manufacture an explanation for a below-target result.
     bullets.push("No explanation was provided by the BU for the below-target KPIs.");
-  }
-
-  if (belowTarget.length === 0) {
+  } else {
     bullets.push("No below-target KPIs required an explanation this period.");
   }
 
-  const lines: ReadoutLine[] = [
-    { kind: "heading", text: "EXECUTIVE COMMENTARY" },
-  ];
-  for (const bullet of bullets.slice(0, MAX_EXCEPTION_BULLETS)) {
-    lines.push({ kind: "bullet", text: bullet });
-  }
+  const lines: ReadoutLine[] = [{ kind: "heading", text: "EXECUTIVE COMMENTARY" }];
+  for (const bullet of bullets) lines.push({ kind: "bullet", text: bullet });
   return lines;
 }

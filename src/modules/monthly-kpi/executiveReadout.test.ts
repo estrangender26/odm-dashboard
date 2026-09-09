@@ -116,7 +116,7 @@ describe("source-bound EXECUTIVE COMMENTARY (no Management Assessment)", () => {
     expect(all).toContain("materials");
     // Each bullet is compressed to <= 150 chars; the whole readout is shorter
     // than the source note.
-    for (const bullet of bullets) expect(bullet.length).toBeLessThanOrEqual(175);
+    for (const bullet of bullets) expect(bullet.length).toBeLessThanOrEqual(205);
     expect(all.length).toBeLessThan(NOTES.TWCI.length);
   });
 
@@ -160,5 +160,113 @@ describe("classifier and formatter sanity", () => {
     const kpis = buildExecutiveReadoutKpis(AUG["AMD-EZ"] as Record<string, number | null>);
     expect(kpis.find((k) => k.key === "pmCmWorkOrderRatio")!.status).toBe("amber");
     expect(kpis.find((k) => k.key === "mttrDays")!.status).toBe("green");
+  });
+});
+
+describe("per-KPI Notes + Situation search, red-before-amber, source-bound", () => {
+  function mk(overrides: Partial<ExecutiveReadoutInput>): ExecutiveReadoutInput {
+    return {
+      businessUnit: "TEST",
+      monthLabel: "August 2026",
+      notes: null,
+      situation: null,
+      values: {
+        pmCompliance: 100,
+        budgetSpend: 100,
+        pmCmWorkOrderRatio: 90,
+        pmCmCostRatio: 85,
+        mttrDays: 5,
+        facilityUptime: 100,
+      },
+      ...overrides,
+    };
+  }
+
+  it("A: Notes explains one failed KPI and Situation explains another - BOTH bullets appear", () => {
+    const lines = buildExecutiveReadoutLines(
+      mk({
+        values: { ...mk({}).values, budgetSpend: 80, facilityUptime: 98.5 },
+        notes: "Budget Spend: Replacement of filters",
+        situation: "Facility Uptime: Genset breakdown affected uptime",
+      })
+    );
+    const bullets = sections(lines).bullets;
+    expect(bullets.find((b) => b.startsWith("Budget Spend"))).toBeTruthy();
+    expect(bullets.find((b) => b.startsWith("Facility Uptime"))).toBeTruthy();
+    expect(bullets.find((b) => b.startsWith("Budget Spend"))).toContain("filters");
+    expect(bullets.find((b) => b.startsWith("Facility Uptime"))).toContain("Genset");
+  });
+
+  it("B: a Situation clause unrelated to any failed KPI is never attached generically", () => {
+    const lines = buildExecutiveReadoutLines(
+      mk({
+        values: { ...mk({}).values, pmCompliance: 85 }, // PM Compliance red
+        notes: null,
+        situation: "Staff safety training was completed for all teams.",
+      })
+    );
+    const bullets = sections(lines).bullets;
+    expect(bullets.join(" ")).not.toContain("Staff safety training");
+    expect(bullets.join(" ")).not.toMatch(/^The BU situation note/i);
+  });
+
+  it("C: red exceptions are selected before amber when more than three KPIs miss target", () => {
+    const redKeys = ["pmCompliance", "budgetSpend", "pmCmWorkOrderRatio"];
+    const amberKey = "pmCmCostRatio";
+    const values: Record<string, number | null> = {
+      pmCompliance: 60,
+      budgetSpend: 60,
+      pmCmWorkOrderRatio: 60,
+      pmCmCostRatio: 60,
+      mttrDays: 5,
+      facilityUptime: 99.4, // amber
+    };
+    const notes =
+      "PM Compliance: compliance note; Budget Spend: budget note; PM:CM work orders: wo note; PM:CM cost: cost note; Facility Uptime: fu note";
+    const bullets = sections(
+      buildExecutiveReadoutLines(mk({ values, notes }))
+    ).bullets;
+    expect(bullets.length).toBeLessThanOrEqual(3);
+    // All three red KPIs fill the 3-bullet cap before any amber KPI appears.
+    expect(bullets[0].startsWith("PM Compliance")).toBe(true);
+    expect(bullets[1].startsWith("Budget Spend")).toBe(true);
+    expect(bullets[2].startsWith("PM:CM work orders")).toBe(true);
+    expect(bullets.some((b) => b.startsWith("PM:CM cost"))).toBe(false);
+    expect(bullets.some((b) => b.startsWith("Facility Uptime"))).toBe(false);
+    expect(redKeys.every((k) => k !== amberKey)).toBe(true);
+  });
+
+  it("D: stable KPI order is preserved within the same status", () => {
+    const values: Record<string, number | null> = {
+      pmCompliance: 60,
+      budgetSpend: 60,
+      pmCmWorkOrderRatio: 95,
+      pmCmCostRatio: 95,
+      mttrDays: 5,
+      facilityUptime: 100,
+    };
+    const notes = "PM Compliance: a; Budget Spend: b; PM:CM work orders: c; PM:CM cost: d";
+    const bullets = sections(
+      buildExecutiveReadoutLines(mk({ values, notes }))
+    ).bullets;
+    expect(bullets[0].startsWith("PM Compliance")).toBe(true);
+    expect(bullets[1].startsWith("Budget Spend")).toBe(true);
+  });
+
+  it("E: AMD-EZ blank Notes/Situation still produces no invented cause", () => {
+    const bullets = sections(buildExecutiveReadoutLines(input("AMD-EZ"))).bullets;
+    expect(bullets).toEqual([
+      "No explanation was provided by the BU for the below-target KPIs.",
+    ]);
+    expect(bullets.join(" ")).not.toMatch(/Validate|MTTR|non-critical|Prioritize/i);
+  });
+
+  it("F: CWC and TWCI source-bound examples remain correct", () => {
+    const cwc = sections(buildExecutiveReadoutLines(input("CWC"))).bullets;
+    expect(cwc[0]).toContain("Budget Spend");
+    expect(cwc[0]).toContain("media replacement");
+    const twci = sections(buildExecutiveReadoutLines(input("TWCI"))).bullets;
+    expect(twci.length).toBeLessThanOrEqual(3);
+    expect(twci.join(" ")).not.toMatch(/Validate|Prioritize|Strengthen|Monitor/);
   });
 });
