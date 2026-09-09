@@ -81,6 +81,7 @@ function expectedDerivedReadout(
   return buildExecutiveReadoutLines({
     businessUnit: buName,
     monthLabel: data.reportingMonthLabel,
+    reportingMonth: data.reportingMonth,
     notes: bu.notes,
     situation: bu.situation,
     values,
@@ -673,8 +674,8 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(matrix.some((row) => row.includes("75% (3.0:1)"))).toBe(true);
     expect(matrix.some((row) => row.includes("64"))).toBe(true);
     expect(matrix.some((row) => row.includes("100%"))).toBe(true);
-    expect(xml).not.toContain("98.38%");
-    expect(xml).not.toContain("95.72%");
+    // PM Compliance preserves authoritative decimals (98.38%, not 98%).
+    expect(xml).toContain("98.38%");
     expect(xml).not.toContain("63.64");
   });
 
@@ -692,7 +693,7 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(ytdAllRow![3]).toBe("83% (4.9:1)");
     expect(ytdAllRow![4]).toBe("71% (2.4:1)");
     expect(ytdAllRow![5]).toBe("27");
-    expect(ytdAllRow![6]).toBe("100%"); // 99.77 rounded to whole number
+    expect(ytdAllRow![6]).toBe("99.77%"); // Facility Uptime keeps its precision
   });
 
   it("green-only readout stays concise and positive with no speculation", async () => {
@@ -719,9 +720,9 @@ describe("generateMonthlyKpiPresentation", () => {
     const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
     const readout = readoutParagraphTexts(xml);
     expect(readout).toEqual(expected);
-    // All-green BU: single neutral line, nothing narrated per KPI.
-    expect(readout[1]).toContain("No below-target KPIs");
-    expect(readout.join(" ").length).toBeLessThan(220);
+    // All-green BU: NO bullets (nothing failed and nothing to explain).
+    expect(readout).toEqual(["EXECUTIVE COMMENTARY"]);
+    expect(readout.join(" ").length).toBeLessThan(60);
     expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
     expect(xml).not.toContain("No commentary submitted.");
     expect(xml).not.toContain("No situation submitted.");
@@ -751,8 +752,9 @@ describe("generateMonthlyKpiPresentation", () => {
     const expected = expectedDerivedReadout(data, data.selectedBusinessUnit);
     const readout = readoutParagraphTexts(xml);
     expect(readout).toEqual(expected);
-    // Below-target KPIs without BU explanation are not explained/invented.
-    expect(readout[1]).toContain("No explanation was provided by the BU");
+    // Below-target KPIs WITHOUT authoritative Notes/Situation produce NO
+    // Executive Commentary bullet at all.
+    expect(readout).toEqual(["EXECUTIVE COMMENTARY"]);
     expect(readout.join(" ")).not.toMatch(/\bValidate\b|Prioritize|Strengthen|Monitor/);
     expect(readout[0]).toBe("EXECUTIVE COMMENTARY");
     expect(xml).not.toContain("Key exceptions:");

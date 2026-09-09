@@ -187,6 +187,12 @@ export const TRENDS_PANELS: Array<{
 
 // ── Display formatting (same conventions as the approved scorecard) ──
 
+function formatPrecisePercent(value: number): string {
+  if (Number.isInteger(value)) return `${value}%`;
+  const s = value.toFixed(2).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return `${s}%`;
+}
+
 export function formatScorecardCell(
   key: ScorecardKpiKey2,
   value: number | null | undefined
@@ -198,6 +204,10 @@ export function formatScorecardCell(
     const cmShare = 100 - value;
     if (cmShare <= 0) return `${pct}% (No CM)`;
     return `${pct}% (${(value / cmShare).toFixed(1)}:1)`;
+  }
+  if (key === "pmCompliance" || key === "facilityUptime") {
+    // Preserve authoritative decimal precision (99.96% stays 99.96%).
+    return formatPrecisePercent(value);
   }
   return `${Math.round(value)}%`;
 }
@@ -476,12 +486,23 @@ function updateScorecardSlide(
 
   const readoutValues: Partial<Record<ScorecardKpiKey, number | null>> = {};
   for (const row of section.summary) readoutValues[row.key as ScorecardKpiKey] = row.value;
+  const effectivePoint = section.trends.find((pt) => pt.month === section.reportingMonth);
+  const monthlyReadoutValues: Partial<Record<ScorecardKpiKey, number | null>> = {};
+  if (effectivePoint) {
+    monthlyReadoutValues.pmCompliance = effectivePoint.pmComplianceMonthly;
+    monthlyReadoutValues.budgetSpend = effectivePoint.budgetSpendMonthly;
+    monthlyReadoutValues.pmCmWorkOrderRatio = effectivePoint.pmCmWorkOrderRatioMonthly;
+    monthlyReadoutValues.pmCmCostRatio = effectivePoint.pmCmCostRatioMonthly;
+    monthlyReadoutValues.facilityUptime = effectivePoint.facilityUptimeMonthly;
+  }
   const lines = buildExecutiveReadoutLines({
     businessUnit: section.businessUnit,
     monthLabel: section.reportingMonthLabel,
+    reportingMonth: section.reportingMonth,
     notes: section.notes,
     situation: section.situation,
     values: readoutValues,
+    monthlyValues: monthlyReadoutValues,
   });
   setReadoutLinesForSlide(doc, lines, readoutTop, READOUT_TOP_MARGIN_EMU, READOUT_HEIGHT_EMU);
 

@@ -162,6 +162,12 @@ function getSlide12KpiFillColor(
   }
 }
 
+function formatPrecisePercent(value: number): string {
+  if (Number.isInteger(value)) return `${value}%`;
+  const s = value.toFixed(2).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return `${s}%`;
+}
+
 function formatDisplayValue(key: ScorecardKpiKey, value: number | null): string {
   if (!isPresentNumber(value)) return "";
   if (key === "mttrDays") return String(Math.round(value));
@@ -170,6 +176,9 @@ function formatDisplayValue(key: ScorecardKpiKey, value: number | null): string 
     const cmShare = 100 - value;
     if (cmShare <= 0) return `${pct}% (No CM)`;
     return `${pct}% (${(value / cmShare).toFixed(1)}:1)`;
+  }
+  if (key === "pmCompliance" || key === "facilityUptime") {
+    return formatPrecisePercent(value);
   }
   return `${Math.round(value)}%`;
 }
@@ -403,12 +412,21 @@ function updateSlide1(doc: XmlDocument, data: MonthlyKpiPresentation): void {
   for (const key of TABLE_METRICS) {
     readoutValues[key] = selectedBu.ytd[key].value;
   }
+  const effectiveTrend = selectedBu.monthlyTrend.find((row) => row.month === data.reportingMonth);
+  const monthlyReadoutValues: Partial<Record<ScorecardKpiKey, number | null>> = {};
+  if (effectiveTrend) {
+    for (const key of TABLE_METRICS) {
+      monthlyReadoutValues[key] = effectiveTrend.values[key].value;
+    }
+  }
   const lines = buildExecutiveReadoutLines({
     businessUnit: selectedBu.businessUnit,
     monthLabel: data.reportingMonthLabel,
+    reportingMonth: data.reportingMonth,
     notes: selectedBu.notes,
     situation: selectedBu.situation,
     values: readoutValues,
+    monthlyValues: monthlyReadoutValues,
   });
   writeNotesSituationReadout(doc, donorReadout ?? null, lines, readoutTop, 700000);
 
