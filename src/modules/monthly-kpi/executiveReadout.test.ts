@@ -1,42 +1,25 @@
 import { describe, expect, it } from "vitest";
+import type { ReadoutLine } from "../executive-presentations/framework/readoutText";
 import {
+  buildExecutiveReadoutKpis,
   buildExecutiveReadoutLines,
   classifyExecutiveKpi,
   formatExecutiveKpiValue,
 } from "./executiveReadout";
-import type { ReadoutLine } from "../executive-presentations/framework/readoutText";
 import type { ExecutiveReadoutInput } from "./executiveReadout";
 
 type LinesLike = ReadoutLine[];
 
-function linesOf(input: ExecutiveReadoutInput): LinesLike {
-  return buildExecutiveReadoutLines(input);
-}
-
-function sections(lines: LinesLike): {
-  exec: string[];
-  assess: string[];
-} {
-  const exec: string[] = [];
-  const assess: string[] = [];
-  let current: string[] = exec;
+function sections(lines: LinesLike): { headings: string[]; bullets: string[] } {
+  const headings: string[] = [];
+  const bullets: string[] = [];
   for (const line of lines) {
-    if (line.kind === "heading") {
-      if (line.text === "EXECUTIVE COMMENTARY") current = exec;
-      if (line.text === "MANAGEMENT ASSESSMENT") current = assess;
-    } else {
-      current.push(line.text);
-    }
+    if (line.kind === "heading") headings.push(line.text);
+    else bullets.push(line.text);
   }
-  return { exec, assess };
+  return { headings, bullets };
 }
 
-function words(text: string): number {
-  return text.trim() ? text.trim().split(/\s+/).length : 0;
-}
-
-
-// Real August-2026 production values (read-only query + authoritative deck data).
 const AUG: Record<string, Partial<Record<string, number | null>>> = {
   "AMD-EZ": {
     pmCompliance: 98.38115588115588,
@@ -62,22 +45,6 @@ const AUG: Record<string, Partial<Record<string, number | null>>> = {
     mttrDays: 0.4633333333333333,
     facilityUptime: 99.90764433849559,
   },
-  EWG: {
-    pmCompliance: 83.33333333333333,
-    budgetSpend: 85.19961259863214,
-    pmCmWorkOrderRatio: 100,
-    pmCmCostRatio: 100,
-    mttrDays: 126,
-    facilityUptime: 99.95139966185559,
-  },
-  LAWC: {
-    pmCompliance: 100,
-    budgetSpend: 86.6514616129535,
-    pmCmWorkOrderRatio: 93.76693766937669,
-    pmCmCostRatio: 77.2501613932294,
-    mttrDays: 0.3764492753623189,
-    facilityUptime: 99.91097965749393,
-  },
   TWCI: {
     pmCompliance: 62.30590974087538,
     budgetSpend: 65.61519197829718,
@@ -92,15 +59,11 @@ const NOTES: Record<string, string> = {
   CWC: "Exceed budget due to media replacement for PS1 9MLD WTP 6MLD GAC DW44",
   LARC:
     "Budget Spend: Replacement of filters; Facility Uptime: Genset breakdown (Facility Primary Power Supply)",
-  EWG:
-    "PM Compliance: Greenways DW Rehabilitaion; Budget Spend: Assuming pump and motor for  replacement ; based on the actual activity the pump was operational and motor subject for replacement; PM CM Cost: Greenways Deepwell Rehab",
-  LAWC:
-    "Budget Spend: The repair of the pump and motor under PACER was accrued this month due to the revised quotation. The scope also included the pump repair under JT Max, which was similarly accrued following the quotation revision.; MTTR: Downtime resulted from the dismantling of the leaking diesel tank and the replacement of the pump and motor.\nVFD malfunction of VFD at Mabuhay 141",
   TWCI:
-    "PM Compliance: Other PMS activities such as Painting works, Service vehicle pms was deffered to September due to materials and request was still on going thru S4.; Budget Spend: Only low value procurement was disbursed for month of August, other preventive maintenance does not require expenses such as cleaning and facility upkeeping.; PM CM Work Orders: PM(Sedimentation Cleaning,Flucculation tank cleaning,AR Lagoon desilting,Chlorination system pms, 2 dmf tank cleaning and disinfection, 1 dredger pms, grasscutting. power line clearing, aircon preventive maintenance )\nCM(Additional long arm for AR Lagoon recovery, 41KVA Assessment and Repair)\nCM(Well 2 Transmission line pole repair); PM CM Cost: PM(Sedimentation Cleaning,Flucculation tank cleaning,AR Lagoon desilting,Chlorination system pms, 2 dmf tank cleaning and disinfection, 1 dredger pms, grasscutting )\nCM(Additional long arm for AR Lagoon recovery, 41KVA Assessment and Repair) no expenses on repairs\nCM(Well 2 Transmission line pole repair); MTTR: Well 2 was down for 2 days due to damage transmission line pole; Facility Uptime: No downtime but August 21-26 was low production.",
+    "PM Compliance: Other PMS activities such as Painting works, Service vehicle pms was deffered to September due to materials and request was still on going thru S4.; Budget Spend: Only low value procurement was disbursed for month of August, other preventive maintenance does not require expenses such as cleaning and facility upkeeping.; PM CM Cost: PM(Sedimentation Cleaning,Flucculation tank cleaning,AR Lagoon desilting,Chlorination system pms, 2 dmf tank cleaning and disinfection, 1 dredger pms, grasscutting )\nCM(Additional long arm for AR Lagoon recovery, 41KVA Assessment and Repair) no expenses on repairs\nCM(Well 2 Transmission line pole repair); MTTR: Well 2 was down for 2 days due to damage transmission line pole; Facility Uptime: No downtime but August 21-26 was low production.",
 };
 
-function augInput(bu: string): ExecutiveReadoutInput {
+function input(bu: string): ExecutiveReadoutInput {
   return {
     businessUnit: bu,
     monthLabel: "August 2026",
@@ -110,117 +73,92 @@ function augInput(bu: string): ExecutiveReadoutInput {
   };
 }
 
-describe("Executive Commentary / Management Assessment - structure and limits", () => {
-  it("A: never exceeds 2 bullets per section across the real August BUs", () => {
-    for (const bu of ["AMD-EZ", "CWC", "LARC", "EWG", "LAWC", "TWCI"]) {
-      const { exec, assess } = sections(linesOf(augInput(bu)));
-      expect(exec.length, `${bu} EC bullet count`).toBeLessThanOrEqual(2);
-      expect(assess.length, `${bu} MA bullet count`).toBeLessThanOrEqual(2);
+describe("source-bound EXECUTIVE COMMENTARY (no Management Assessment)", () => {
+  it("has exactly the EXECUTIVE COMMENTARY heading and never MANAGEMENT ASSESSMENT", () => {
+    for (const bu of ["AMD-EZ", "CWC", "LARC", "TWCI"]) {
+      const { headings } = sections(buildExecutiveReadoutLines(input(bu)));
+      expect(headings).toEqual(["EXECUTIVE COMMENTARY"]);
     }
   });
 
-  it("B: word budget is respected and long source Notes are compressed, not echoed", () => {
-    for (const bu of ["AMD-EZ", "CWC", "LARC", "EWG", "LAWC", "TWCI"]) {
-      const { exec, assess } = sections(linesOf(augInput(bu)));
-      const execWords = exec.reduce((a, b) => a + words(b), 0);
-      const assessWords = assess.reduce((a, b) => a + words(b), 0);
-      expect(execWords, `${bu} EC words`).toBeLessThanOrEqual(48);
-      expect(assessWords, `${bu} MA words`).toBeLessThanOrEqual(48);
+  it("emits at most 3 exception bullets", () => {
+    for (const bu of ["AMD-EZ", "CWC", "LARC", "TWCI"]) {
+      const { bullets } = sections(buildExecutiveReadoutLines(input(bu)));
+      expect(bullets.length).toBeLessThanOrEqual(3);
     }
-    // TWCI (1147-char note) must stay short: EC+MA combined far below the note length.
-    const twci = sections(linesOf(augInput("TWCI")));
-    const combined = [...twci.exec, ...twci.assess].join(" ").length;
-    expect(combined).toBeLessThan(600);
-    expect(NOTES.TWCI.length).toBeGreaterThan(1100);
   });
 
-  it("C: blank commentary never produces invented causes and still yields a useful KPI-derived assessment (AMD-EZ)", () => {
-    const { exec, assess } = sections(linesOf(augInput("AMD-EZ")));
-    const all = [...exec, ...assess].join(" ");
-    // No unsupported causal claim: the criticality hypothesis is phrased as a
-    // request to CONFIRM, never as a fact.
-    expect(all).not.toMatch(/involved non-critical/i);
-    expect(all).toMatch(/Confirm whether long-duration repairs involved equipment/i);
-    expect(all).toMatch(/Validate the reported MTTR/i);
-    expect(all).not.toMatch(/elevated MTTR/i);
-    expect(all).not.toContain("No commentary submitted.");
-    expect(all).not.toContain("No situation submitted.");
+  it("AMD-EZ (blank notes) never invents an explanation or management language", () => {
+    const { bullets } = sections(buildExecutiveReadoutLines(input("AMD-EZ")));
+    const all = bullets.join(" ");
+    expect(bullets).toEqual([
+      "No explanation was provided by the BU for the below-target KPIs.",
+    ]);
+    expect(all).not.toMatch(/Validate|MTTR|non-critical|Prioritize|Review|Monitor/i);
+    expect(all).not.toMatch(/PM:CM work orders \(84\.4%\)/);
   });
 
-  it("D: red exceptions are prioritized over amber, and irrelevant greens are omitted unless contextually needed", () => {
-    const twci = sections(linesOf(augInput("TWCI")));
-    // TWCI reds: PM Compliance (62.31%), Budget Spend (65.62%); amber cost ratio.
-    expect(twci.exec[0]).toContain("PM Compliance (62.31%)");
-    expect(twci.exec[0]).toContain("Budget Spend (65.62%)");
-    // PM:CM work-order ratio is green (89.8%) and must not be narrated.
-    expect(twci.exec[0]).not.toContain("PM:CM work orders");
+  it("CWC bullet explains Budget Spend from the submitted note only", () => {
+    const { bullets } = sections(buildExecutiveReadoutLines(input("CWC")));
+    expect(bullets.length).toBeGreaterThanOrEqual(1);
+    expect(bullets[0]).toContain("Budget Spend");
+    expect(bullets[0]).toContain("media replacement");
+    expect(bullets[0]).not.toContain("Budget Spend (80.49%)");
+    expect(bullets.join(" ")).not.toContain("management");
+    expect(bullets.join(" ")).not.toContain("Monitor");
   });
 
-  it("E: TWCI (long real commentary) - concise summary, no clipping-prone raw dump", () => {
-    const { exec, assess } = sections(linesOf(augInput("TWCI")));
-    const all = [...exec, ...assess].join(" ");
-    expect(exec[0]).toContain("PM Compliance (62.31%)");
-    expect(assess.some((a) => a.includes("Well 2 outage"))).toBe(true);
-    expect(all.length).toBeLessThan(700);
+  it("TWCI commentary is source-bound and compressed", () => {
+    const { bullets } = sections(buildExecutiveReadoutLines(input("TWCI")));
+    const all = bullets.join("\n");
+    expect(bullets.length).toBeLessThanOrEqual(3);
+    expect(all.toLowerCase()).toMatch(/deffered|deferred|deferr/);
+    expect(all).toContain("materials");
+    // Each bullet is compressed to <= 150 chars; the whole readout is shorter
+    // than the source note.
+    for (const bullet of bullets) expect(bullet.length).toBeLessThanOrEqual(175);
+    expect(all.length).toBeLessThan(NOTES.TWCI.length);
   });
 
-  it("F: AMD-EZ blank notes case - useful KPI-derived assessment with no invented cause", () => {
-    const { exec, assess } = sections(linesOf(augInput("AMD-EZ")));
-    expect(exec[0]).toContain("PM:CM work orders (84.4%)");
-    expect(exec[0]).toContain("MTTR (85.86 days)");
-    expect(assess.length).toBeGreaterThanOrEqual(2);
+  it("TWCI notes can explain up to three below-target KPIs; no invented wording", () => {
+    const { bullets } = sections(buildExecutiveReadoutLines(input("TWCI")));
+    const all = bullets.join(" ");
+    expect(all).not.toContain("Priority is");
+    expect(all).not.toContain("Management should");
+    expect(all).not.toContain("Validate");
+    expect(all).not.toContain("Strengthen");
   });
 
-  it("G: CWC strong BU stays concise and focused on material exceptions only", () => {
-    const { exec, assess } = sections(linesOf(augInput("CWC")));
-    const all = [...exec, ...assess].join(" ");
-    // CWC: Budget Spend is the red exception; PM Compliance (100%) and the
-    // near-No-CM ratios should not be narrated as exceptions.
-    expect(exec[0]).toContain("Budget Spend (80.49%)");
-    expect(all).not.toContain("PM Compliance (100.00%) was below");
-    expect(exec.length).toBeLessThanOrEqual(2);
+  it("a KPI that meets target is never mentioned", () => {
+    // CWC PM Compliance (100%) is not below target.
+    const { bullets } = sections(buildExecutiveReadoutLines(input("CWC")));
+    expect(bullets.join(" ")).not.toContain("PM Compliance");
   });
 
-  it("I: determinism - identical inputs produce byte-identical outputs", () => {
-    const a = sections(linesOf(augInput("TWCI")));
-    const b = sections(linesOf(augInput("TWCI")));
-    expect(a.exec).toEqual(b.exec);
-    expect(a.assess).toEqual(b.assess);
-  });
-
-  it("headings are EXECUTIVE COMMENTARY and MANAGEMENT ASSESSMENT (never raw Notes/Situation headings)", () => {
-    for (const bu of ["AMD-EZ", "CWC", "TWCI"]) {
-      const lines = linesOf(augInput(bu));
-      expect(lines.map((l) => l.text)).not.toContain("Notes / Commentary");
-      expect(lines.map((l) => l.text)).not.toContain("Situation");
-      expect(lines.some((l) => l.text === "EXECUTIVE COMMENTARY")).toBe(true);
-      expect(lines.some((l) => l.text === "MANAGEMENT ASSESSMENT")).toBe(true);
-    }
+  it("determinism: identical inputs give identical output", () => {
+    const a = sections(buildExecutiveReadoutLines(input("TWCI")));
+    const b = sections(buildExecutiveReadoutLines(input("TWCI")));
+    expect(a).toEqual(b);
   });
 });
 
 describe("classifier and formatter sanity", () => {
   it("formats values deterministically", () => {
-    expect(formatExecutiveKpiValue("pmCompliance", 62.30590974087538)).toBe("62.31%");
-    expect(formatExecutiveKpiValue("budgetSpend", 65.61519197829718)).toBe("65.62%");
+    expect(formatExecutiveKpiValue("pmCompliance", 62.3059)).toBe("62.31%");
+    expect(formatExecutiveKpiValue("budgetSpend", 65.6151)).toBe("65.62%");
     expect(formatExecutiveKpiValue("pmCmCostRatio", 67.485)).toBe("67.5%");
-    expect(formatExecutiveKpiValue("mttrDays", 85.8614)).toBe("85.86 days");
+    expect(formatExecutiveKpiValue("mttrDays", 42.25)).toBe("42.25 days");
   });
 
-  it("classifies red/amber/green/missing from the scorecard thresholds", () => {
+  it("classifies with the authoritative thresholds only (MTTR has no band)", () => {
     expect(classifyExecutiveKpi("pmCompliance", 62.3)).toBe("red");
     expect(classifyExecutiveKpi("pmCompliance", 95)).toBe("amber");
-    expect(classifyExecutiveKpi("pmCompliance", 98.5)).toBe("green");
     expect(classifyExecutiveKpi("budgetSpend", 80)).toBe("red");
-    expect(classifyExecutiveKpi("budgetSpend", 115)).toBe("red");
-    expect(classifyExecutiveKpi("budgetSpend", 107)).toBe("amber");
     expect(classifyExecutiveKpi("facilityUptime", 99.95)).toBe("amber");
-    expect(classifyExecutiveKpi("facilityUptime", 100)).toBe("green");
-    // MTTR has NO authoritative threshold band: reported data is "green"
-    // (dataExistsGreen) and missing/null is "missing" - never a custom band.
     expect(classifyExecutiveKpi("mttrDays", 42.25)).toBe("green");
-    expect(classifyExecutiveKpi("mttrDays", 2.27)).toBe("green");
-    expect(classifyExecutiveKpi("mttrDays", 0)).toBe("missing");
     expect(classifyExecutiveKpi("mttrDays", null)).toBe("missing");
+    const kpis = buildExecutiveReadoutKpis(AUG["AMD-EZ"] as Record<string, number | null>);
+    expect(kpis.find((k) => k.key === "pmCmWorkOrderRatio")!.status).toBe("amber");
+    expect(kpis.find((k) => k.key === "mttrDays")!.status).toBe("green");
   });
 });

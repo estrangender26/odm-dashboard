@@ -833,42 +833,24 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
         slides[1 + i * 2].xml,
         "Executive Readout"
       );
-      // The visible readout is the DETERMINISTIC derived Executive
-      // Commentary / Management Assessment (built from the section's own
-      // KPI values + stored Notes), never a raw dump of stored text.
+      // The visible readout is the deterministic source-bound EXCEPTION
+      // commentary (only below-target KPIs explained from BU Notes).
       const expectedTexts = derivedReadoutTexts(section);
       expect(readoutTexts).toEqual(expectedTexts);
-      expect(readoutTexts[0]).toBe("EXECUTIVE COMMENTARY");
-      const managementIndex = readoutTexts.indexOf("MANAGEMENT ASSESSMENT");
-      expect(managementIndex).toBeGreaterThan(0);
-      const bulletsBefore = readoutTexts.slice(1, managementIndex).filter((t) => t.length > 0);
-      const bulletsAfter = readoutTexts.slice(managementIndex + 1).filter((t) => t.length > 0);
-      expect(bulletsBefore.length).toBeLessThanOrEqual(2);
-      expect(bulletsAfter.length).toBeLessThanOrEqual(2);
-      const wordCount = (text: string) => (text ? text.trim().split(/\s+/).length : 0);
-      expect(bulletsBefore.reduce((a, b) => a + wordCount(b), 0)).toBeLessThanOrEqual(46);
-      expect(bulletsAfter.reduce((a, b) => a + wordCount(b), 0)).toBeLessThanOrEqual(46);
-      // Old neutral/raw strings never appear in the derived readout.
+      assertExecutiveCommentaryStructure(readoutTexts);
       expect(readoutTexts).not.toContain("Notes / Commentary");
       expect(readoutTexts).not.toContain("No commentary submitted.");
       expect(readoutTexts).not.toContain("No situation submitted.");
-      // No leakage: when another section's derived readout is NOT identical
-      // to this one, none of its VALUE-bearing bullet text may appear here
-      // (generic shared action sentences are not leakage).
+      expect(readoutTexts.join(" ")).not.toMatch(/\bValidate\b|Management should|Prioritize|Strengthen|Monitor/);
+      // No leakage of any OTHER section's derived bullet text.
       const ownDerived = derivedReadoutTexts(section);
       for (const other of data.sections) {
         if (other.businessUnit === section.businessUnit) continue;
         const otherDerived = derivedReadoutTexts(other);
         if (JSON.stringify(otherDerived) === JSON.stringify(ownDerived)) continue;
         for (const text of otherDerived) {
-          if (text !== "EXECUTIVE COMMENTARY" && text !== "MANAGEMENT ASSESSMENT") {
-            const hasGenericOnly =
-              text.includes("95-105%") ||
-              text.includes("≥98%") ||
-              text.includes("100% target");
-            if (/%|days/.test(text) && !hasGenericOnly) {
-              expect(readoutTexts.includes(text)).toBe(false);
-            }
+          if (text !== "EXECUTIVE COMMENTARY") {
+            expect(readoutTexts.includes(text)).toBe(false);
           }
         }
       }
@@ -906,28 +888,33 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
     }
   });
 
-  it("trends chart windows stop at the common effective month (or the BU's real last data month) and never plot future months", async () => {
+  it("every chart is CALENDAR-ALIGNED Jan..effective (never future months; values stay in their real month)", async () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     expect(data.effectiveReportingMonth).toBe(8);
     const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const slides = await orderedSlideXml(zip);
+    const labels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
     for (let i = 0; i < data.sections.length; i++) {
-      const section = data.sections[i];
-      const expectedMonths = section.trends.length;
+      const expectedCategories = labels.slice(0, data.effectiveReportingMonth);
       const chartParts = await chartPartsForSlide(zip, slides[2 + i * 2].name);
       for (const part of chartParts) {
         const { cats } = await chartCache(zip, part, 0);
-        expect(cats.length).toBe(expectedMonths);
+        expect(cats).toEqual(expectedCategories);
         expect(cats).not.toContain("Sep");
         expect(cats).not.toContain("Dec");
       }
-      // Slide headers still report the common portfolio month, never a relabel.
       expect(slides[2 + i * 2].xml).toContain(`Reporting period: ${data.effectiveReportingMonthLabel}`);
     }
     const tagum = data.sections.find((s) => s.businessUnit === "Tagum Water")!;
     expect(tagum.trends.length).toBe(6);
+    // Lagging BU charts still carry the full Jan..Aug calendar with gaps after
+    // its last submitted month (values are never compacted toward January).
+    const tagumIdx = data.sections.indexOf(tagum);
+    const cache = await chartCache(zip, (await chartPartsForSlide(zip, slides[2 + tagumIdx * 2].name))[0], 0);
+    expect(cache.cats.length).toBe(8);
+    expect(cache.vals.every((v, idx) => v === null || idx >= tagum.trends[0].month - 1)).toBe(true);
   });
 
   it("Trends chart grid is exactly 3 equal columns x 2 equal rows (dashboard layout)", async () => {
@@ -998,32 +985,37 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
     expect(fuXml).toContain("Benchmark =100%");
     expect(fuXml).toContain('prstDash val="dash"');
 
-    // Group A panels (Budget/WO/Cost/MTTR): no bars - the authoritative trend
-    // model exposes only the cumulative YTD series for these KPIs, so monthly
-    // bars would be invented presentation data.
+    // Group A panels now show BOTH a Monthly Actual series and the YTD /
+    // Cumulative series (monthly actual = authoritative standalone value of
+    // that calendar month; YTD stays the existing cumulative series).
     const budgetXml = await xmlOf(chartParts[1]);
-    expect(budgetXml).not.toContain("<c:barChart>");
+    expect(budgetXml).not.toContain("<c:barChart>"); // monthly actual plotted as a line
+    expect(budgetXml).toContain("Monthly Actual");
+    expect(budgetXml).toContain("YTD / Cumulative");
     expect(budgetXml).toContain("Benchmark 95%");
     expect(budgetXml).toContain("Benchmark 105%");
     const woXml = await xmlOf(chartParts[2]);
     expect(woXml).not.toContain("<c:barChart>");
+    expect(woXml).toContain("Monthly Actual");
     expect(woXml).toContain("Benchmark ≥86%");
     const costXml = await xmlOf(chartParts[3]);
     expect(costXml).not.toContain("<c:barChart>");
+    expect(costXml).toContain("Monthly Actual");
     expect(costXml).toContain("Benchmark ≥80%");
     const mttrXml = await xmlOf(chartParts[4]);
     expect(mttrXml).not.toContain("<c:barChart>");
+    expect(mttrXml).toContain("Monthly Actual");
+    expect(mttrXml).toContain("YTD / Cumulative");
     expect(mttrXml).not.toContain("Benchmark");
     expect(mttrXml).not.toContain("dash");
 
-    // Every chart still carries its own six series totals (bar group + line
-    // group share the same underlying series).
+    // Series totals per panel (Monthly Actual added where missing).
     const seriesCounts: number[] = [];
     for (const part of chartParts) {
       const xml = await xmlOf(part);
       seriesCounts.push((xml.match(/<c:ser>/g) ?? []).length);
     }
-    expect(seriesCounts).toEqual([3, 3, 2, 2, 1, 3]);
+    expect(seriesCounts).toEqual([3, 4, 3, 3, 2, 3]);
   });
 
   it("Group A trend final points and Group B YTD-average final points match the Slide 1 YTD values", async () => {
@@ -1048,16 +1040,13 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
       ] as const;
       for (let panel = 0; panel < 6; panel++) {
         const key = panelKeys[panel];
-        const firstSeries = await chartCache(zip, chartParts[panel], 0);
-        const final = firstSeries.vals[firstSeries.vals.length - 1];
-        // The chart series carrying the YTD value is the 2nd for Group B, 1st for Group A.
-        const secondSeries = await chartCache(zip, chartParts[panel], 1);
-        const ytdValue =
-          key === "pmCompliance" || key === "facilityUptime"
-            ? secondSeries.vals[secondSeries.vals.length - 1]
-            : final;
+        // Series layout is now [Monthly Actual, YTD/YTD-Average, benchmarks...]
+        // for every panel, so the YTD/ytdAvg series is always index 1.
+        const ytdSeries = await chartCache(zip, chartParts[panel], 1);
+        const nonNull = ytdSeries.vals.filter((v) => v !== null);
+        const ytdValue = nonNull[nonNull.length - 1];
         const expectedRaw = summaryByKey[key] as number | null;
-        if (expectedRaw !== null && expectedRaw !== undefined) {
+        if (expectedRaw !== null && expectedRaw !== undefined && ytdValue !== undefined) {
           expect(Math.abs(Number(ytdValue) - expectedRaw)).toBeLessThanOrEqual(0.6);
         }
       }
@@ -1127,30 +1116,45 @@ describe("Monthly Actuals in Trend Charts (Group B) and Group A containment", ()
       const section = data.sections[i];
       const chartParts = await chartPartsForSlide(zip, slides[2 + i * 2].name);
       // Panel order: 0 = PM Compliance (bar series 0), 5 = Facility Uptime (bar series 0).
+      const labels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
       for (const panel of [0, 5]) {
         const cache = await chartCache(zip, chartParts[panel], 0);
-        expect(cache.cats).toEqual(section.trends.map((p) => p.monthLabel));
-        section.trends.forEach((point, idx) => {
+        expect(cache.cats).toEqual(labels.slice(0, data.effectiveReportingMonth));
+        section.trends.forEach((point) => {
           const monthly =
             panel === 0 ? point.pmComplianceMonthly : point.facilityUptimeMonthly;
           if (monthly === null || monthly === undefined) return;
-          expect(cache.vals[idx]).toBeCloseTo(Math.round(monthly * 100) / 100, 5);
+          // Values stay at their real calendar month (month-1) position.
+          expect(cache.vals[point.month - 1]).toBeCloseTo(Math.round(monthly * 100) / 100, 5);
         });
       }
     }
   });
 
-  it("never introduces standalone monthly series into Group A cumulative charts", async () => {
+  it("Group A cumulative charts now carry a Monthly Actual series alongside YTD", async () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const slides = await orderedSlideXml(zip);
     const chartParts = await chartPartsForSlide(zip, slides[2].name);
+    // Budget(1)/WO(2)/Cost(3)/MTTR(4): Monthly Actual series present, no bars.
     for (const idx of [1, 2, 3, 4]) {
       const xml = await zip.file(`ppt/charts/${chartParts[idx]}`)!.async("string");
       expect(xml).not.toContain("<c:barChart>");
-      expect(xml).not.toContain("Monthly Actual");
+      expect(xml).toContain("Monthly Actual");
     }
+    // Monthly Actual values are the authoritative standalone monthly figures
+    // and never equal the YTD series by default. (First BU EWG-like fixture:
+    // budget monthly for its earliest month differs from the cumulative value.)
+    const budget = await chartCache(zip, chartParts[1], 0); // monthly actual
+    const budgetYtd = await chartCache(zip, chartParts[1], 1);
+    const differingIdx = budget.vals.findIndex(
+      (v, i) => v !== null && budgetYtd.vals[i] !== null && Math.abs(v - budgetYtd.vals[i]!) > 0.05
+    );
+    // For a BU with several submitted months, Monthly Actual and YTD differ at
+    // at least one month (first month can legitimately be equal).
+    expect(differingIdx).toBeGreaterThanOrEqual(0);
+    expect(budget.vals[differingIdx]).not.toBeCloseTo(budgetYtd.vals[differingIdx]!, 1);
   });
 
   it("chart monthly-actual values never leak between BUs", async () => {
@@ -1270,6 +1274,18 @@ const DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
  * Derived Executive Readout texts for a section using the SAME deterministic
  * builder the generator uses (section summary values + stored notes).
  */
+/** Single-heading EXECUTIVE COMMENTARY section checks (bullets <= 3, short). */
+function assertExecutiveCommentaryStructure(texts: string[]): void {
+  expect(texts[0]).toBe("EXECUTIVE COMMENTARY");
+  expect(texts).not.toContain("MANAGEMENT ASSESSMENT");
+  const bullets = texts.slice(1);
+  expect(bullets.length).toBeLessThanOrEqual(3);
+  const word = (t: string) => (t ? t.trim().split(/\s+/).length : 0);
+  for (const bullet of bullets) {
+    expect(word(bullet)).toBeLessThanOrEqual(55);
+  }
+}
+
 function derivedReadoutTexts(
   section: { businessUnit: string; reportingMonthLabel: string; notes: string | null; situation: string | null; summary: { key: string; value: number | null }[] }
 ): string[] {
@@ -1322,7 +1338,7 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
       const expectedTexts = derivedReadoutTexts(data.sections[i]);
       expect(flags.map((f) => f.text)).toEqual(expectedTexts);
       const headings = flags.filter((f) => f.heading).map((f) => f.text);
-      expect(headings).toEqual(["EXECUTIVE COMMENTARY", "MANAGEMENT ASSESSMENT"]);
+      expect(headings).toEqual(["EXECUTIVE COMMENTARY"]);
       for (const f of flags) {
         if (f.heading) {
           expect(f.bullet).toBe(false);
@@ -1491,9 +1507,8 @@ describe("Readout heading/bullet XML structure (no buNone leakage, no nested run
       const expectedTexts = derivedReadoutTexts(section);
       // Every readout run text matches the derived builder exactly.
       expect(runs.map((r) => r.text)).toEqual(expectedTexts);
-      const headingNames = new Set(["EXECUTIVE COMMENTARY", "MANAGEMENT ASSESSMENT"]);
       for (const run of runs) {
-        if (headingNames.has(run.text)) {
+        if (run.text === "EXECUTIVE COMMENTARY") {
           assertHeading(run);
         } else {
           assertBullet(run);
@@ -1612,13 +1627,9 @@ describe("long August-2026 commentary never clips inside the generated readout t
       const joined = text.join(" ");
       expect(joined.length).toBeLessThan(noteSource.length / 2); // summarized
       const word = (t: string) => (t ? t.trim().split(/\s+/).length : 0);
-      const maIdx = text.indexOf("MANAGEMENT ASSESSMENT");
-      expect(maIdx).toBeGreaterThan(0);
-      const ecWords = text.slice(1, maIdx).reduce((a, b) => a + word(b), 0);
-      const maWords = text.slice(maIdx + 1).reduce((a, b) => a + word(b), 0);
-      expect(ecWords).toBeLessThanOrEqual(46);
-      expect(maWords).toBeLessThanOrEqual(46);
-      expect(text.length - 2).toBeLessThanOrEqual(4); // <= 2 bullets per section
+      const bullets = text.slice(1);
+      expect(bullets.length).toBeLessThanOrEqual(3); // max 3 exception bullets
+      for (const bullet of bullets) expect(word(bullet)).toBeLessThanOrEqual(55);
 
       // Schema-valid autofit safety net on the NEW text box.
       expect(slide).toContain("<a:normAutofit/>");
@@ -1653,9 +1664,9 @@ describe("long August-2026 commentary never clips inside the generated readout t
       expect(cy).toBeGreaterThanOrEqual(900000);
       expect(estimateReadoutVisualLines(TWCI_NOTE, usable)).toBeGreaterThan(5);
 
-      // Both derived headings present.
-      expect(text).toContain("EXECUTIVE COMMENTARY");
-      expect(text).toContain("MANAGEMENT ASSESSMENT");
+      // Only the EXECUTIVE COMMENTARY heading is present.
+      expect(text[0]).toBe("EXECUTIVE COMMENTARY");
+      expect(text).not.toContain("MANAGEMENT ASSESSMENT");
       expect(text).not.toContain("Notes / Commentary");
     }
   });
