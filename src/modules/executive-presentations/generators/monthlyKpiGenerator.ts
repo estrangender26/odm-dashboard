@@ -33,6 +33,7 @@ import type {
   ScorecardKpiKey,
 } from "../../monthly-kpi/types";
 import { writeNotesSituationReadout } from "../framework/readoutText";
+import { cleanMonthlyKpiPresentationZip } from "../framework/presentationCleanup";
 import { buildExecutiveReadoutLines } from "../../monthly-kpi/executiveReadout";
 import {
   evaluateKpiStatus,
@@ -757,5 +758,6 @@ export async function generateMonthlyKpiPresentation(
     saveSlideXml(zip, name, doc);
   }
 
+  await cleanMonthlyKpiPresentationZip(zip);
   return generatePptxBlob(zip);
 }

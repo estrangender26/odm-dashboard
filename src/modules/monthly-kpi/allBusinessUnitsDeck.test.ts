@@ -768,7 +768,7 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
     }
   });
 
-  it("monthly table rows are authoritative: Group A rows = cumulative Jan..M, Group B rows = standalone month, YTD row = live aggregate", async () => {
+  it("monthly table rows are authoritative: Group A rows = STANDALONE month, Group B rows = standalone month, YTD row = live cumulative aggregate", async () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
     const effective = data.effectiveReportingMonth;
     const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
@@ -795,15 +795,18 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
           const expected = !trend
             ? ""
             : (() => {
-                const monthlyCumulative = cumulative ? (cumulative[key] as number | null) : null;
-                const standalone =
+                // STANDALONE-month source per KPI (Budget/PM:CM rows and Group
+                // B rows use the authoritative standalone value of that month;
+                // MTTR preserves its existing monthly/YTD row semantics).
+                const valueForMonth =
                   key === "pmCompliance" ? trend.pmComplianceMonthly ?? null :
-                  key === "facilityUptime" ? trend.facilityUptimeMonthly ?? null : null;
-                const groupA = key !== "pmCompliance" && key !== "facilityUptime";
-                return formatScorecardCell(
-                  key,
-                  groupA ? monthlyCumulative : (standalone as number | null)
-                );
+                  key === "facilityUptime" ? trend.facilityUptimeMonthly ?? null :
+                  key === "budgetSpend" ? trend.budgetSpendMonthly ?? null :
+                  key === "pmCmWorkOrderRatio" ? trend.pmCmWorkOrderRatioMonthly ?? null :
+                  key === "pmCmCostRatio" ? trend.pmCmCostRatioMonthly ?? null :
+                  (trend.mttrDays ?? null);
+                void cumulative;
+                return formatScorecardCell(key, valueForMonth);
               })();
           expect(cell, `${section.businessUnit} month ${month} ${key}`).toBe(expected);
         }
@@ -985,29 +988,27 @@ describe("All-Business-Units deck — Manila Water master-clone structure", () =
     expect(fuXml).toContain("Benchmark =100%");
     expect(fuXml).toContain('prstDash val="dash"');
 
-    // Group A panels now show BOTH a Monthly Actual series and the YTD /
-    // Cumulative series (monthly actual = authoritative standalone value of
-    // that calendar month; YTD stays the existing cumulative series).
+    // ALL six panels: Monthly Actual = BAR (column) + YTD/benchmarks = LINE.
     const budgetXml = await xmlOf(chartParts[1]);
-    expect(budgetXml).not.toContain("<c:barChart>"); // monthly actual plotted as a line
+    expect(budgetXml).toContain("<c:barChart>"); // monthly actual is a column
+    expect(budgetXml).toContain('<c:barDir val="col"/>');
     expect(budgetXml).toContain("Monthly Actual");
     expect(budgetXml).toContain("YTD / Cumulative");
     expect(budgetXml).toContain("Benchmark 95%");
     expect(budgetXml).toContain("Benchmark 105%");
     const woXml = await xmlOf(chartParts[2]);
-    expect(woXml).not.toContain("<c:barChart>");
+    expect(woXml).toContain("<c:barChart>");
     expect(woXml).toContain("Monthly Actual");
     expect(woXml).toContain("Benchmark ≥86%");
     const costXml = await xmlOf(chartParts[3]);
-    expect(costXml).not.toContain("<c:barChart>");
+    expect(costXml).toContain("<c:barChart>");
     expect(costXml).toContain("Monthly Actual");
     expect(costXml).toContain("Benchmark ≥80%");
     const mttrXml = await xmlOf(chartParts[4]);
-    expect(mttrXml).not.toContain("<c:barChart>");
+    expect(mttrXml).toContain("<c:barChart>");
     expect(mttrXml).toContain("Monthly Actual");
     expect(mttrXml).toContain("YTD / Cumulative");
-    expect(mttrXml).not.toContain("Benchmark");
-    expect(mttrXml).not.toContain("dash");
+    expect(mttrXml).not.toContain("Benchmark"); // NO invented MTTR benchmark
 
     // Series totals per panel (Monthly Actual added where missing).
     const seriesCounts: number[] = [];
@@ -1137,10 +1138,11 @@ describe("Monthly Actuals in Trend Charts (Group B) and Group A containment", ()
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const slides = await orderedSlideXml(zip);
     const chartParts = await chartPartsForSlide(zip, slides[2].name);
-    // Budget(1)/WO(2)/Cost(3)/MTTR(4): Monthly Actual series present, no bars.
+    // Budget(1)/WO(2)/Cost(3)/MTTR(4): Monthly Actual is a BAR (column).
     for (const idx of [1, 2, 3, 4]) {
       const xml = await zip.file(`ppt/charts/${chartParts[idx]}`)!.async("string");
-      expect(xml).not.toContain("<c:barChart>");
+      expect(xml).toContain("<c:barChart>");
+      expect(xml).toContain('<c:barDir val="col"/>');
       expect(xml).toContain("Monthly Actual");
     }
     // Monthly Actual values are the authoritative standalone monthly figures
@@ -1543,6 +1545,32 @@ describe("OPC/package integrity audit (generated All-BU deck)", () => {
     }
     return stack.join("/");
   }
+
+  it("generated deck contains ZERO reviewer comments and no MTTR methodology paragraph (slides or notes)", async () => {
+    const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+    // No comment parts / no comment rels.
+    const commentParts = names.filter((n) => /ppt\/comments\//i.test(n) || /commentAuthors/i.test(n));
+    expect(commentParts).toEqual([]);
+    const relXml = names
+      .filter((n) => n.endsWith(".rels"))
+      .map((n) => zip.file(n)!.async("string"));
+    const relText = (await Promise.all(relXml)).join("\n").toLowerCase();
+    expect(relText).not.toContain("comments/comment");
+    expect(relText).not.toContain("commentauthor");
+    // No methodology paragraph in slides or speaker notes.
+    const bodyText = (
+      await Promise.all(
+        names
+          .filter((n) => /^ppt\/(slides|notesSlides)\/slide\d+\.xml$/.test(n))
+          .map((n) => zip.file(n)!.async("string"))
+      )
+    ).join("\n");
+    expect(bodyText).not.toContain("Calculation methodology is currently being realigned");
+    expect(bodyText).not.toContain("121 calendar days for SLA");
+  });
 
   it("every relationship target exists; relationship ids are unique; xml parts parse; content types cover slides/charts", async () => {
     const data = buildAllBusinessUnitsDeckData(records, 2026, 9);
