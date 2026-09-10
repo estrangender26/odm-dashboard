@@ -64,6 +64,7 @@ import {
   writeNotesSituationReadout,
 } from "../executive-presentations/framework/readoutText";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
+import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
 import { cleanMonthlyKpiPresentationZip } from "../executive-presentations/framework/presentationCleanup";
 import type { ReadoutLine } from "../executive-presentations/framework/readoutText";
 import type { ScorecardKpiKey } from "./types";
@@ -211,8 +212,13 @@ export function formatScorecardCell(
     if (cmShare <= 0) return `${pct}% (No CM)`;
     return `${pct}% (${(value / cmShare).toFixed(1)}:1)`;
   }
-  if (key === "pmCompliance" || key === "facilityUptime") {
-    // Preserve authoritative decimal precision (99.96% stays 99.96%).
+  if (key === "facilityUptime") {
+    // Facility Uptime (PR #427): max two decimals; a below-100 value is
+    // truncated so it can never display as 100% / 100.00%.
+    return formatFacilityUptimePercent(value);
+  }
+  if (key === "pmCompliance") {
+    // PM Compliance formatting is intentionally UNCHANGED (PR #427 scope).
     return formatPrecisePercent(value);
   }
   return `${Math.round(value)}%`;

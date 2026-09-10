@@ -26,6 +26,7 @@
  * and is therefore never listed as an exception.
  */
 
+import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
 import {
   evaluateKpiStatus,
   getDefaultMonthlyKpiThresholdConfig,
@@ -87,6 +88,10 @@ export function formatExecutiveKpiValue(key: ScorecardKpiKey, value: number | nu
   if (key === "mttrDays") return `${round2(value)} days`;
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     return value >= 100 ? "No CM" : `${value.toFixed(1)}%`;
+  }
+  if (key === "facilityUptime") {
+    // Facility Uptime (PR #427): max two decimals, never 100% when below 100.
+    return formatFacilityUptimePercent(value);
   }
   return `${round2(value)}%`;
 }
