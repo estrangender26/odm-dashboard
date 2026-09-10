@@ -18,6 +18,7 @@ import {
 } from "./kpiAggregation";
 import { buildAllBusinessUnitsDeckData, normalizeStoredCommentary } from "./allBusinessUnitsData";
 import { generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
+import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
 import {
   evaluateKpiStatus,
   formatThresholdBenchmark,
@@ -70,6 +71,10 @@ function formatMetricValue(key: ScorecardKpiKey, value: number | null): string {
     const cmShare = 100 - value;
     if (cmShare <= 0) return "No CM";
     return `${value.toFixed(1)}% (${(value / cmShare).toFixed(1)}:1)`;
+  }
+  if (key === "facilityUptime") {
+    // Facility Uptime (PR #427): max two decimals, never 100% when below 100.
+    return formatFacilityUptimePercent(value);
   }
   return `${value.toFixed(2)}%`;
 }

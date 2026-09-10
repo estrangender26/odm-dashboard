@@ -1337,3 +1337,91 @@ describe("generated single-BU deck OOXML integrity — no empty text bodies (PR 
     expect(failures).toEqual([]);
   });
 });
+
+describe("Facility Uptime display precision — single-BU deck (PR #427)", () => {
+  const EDGE_UPTIME = 99.99621384219294;
+
+  /** Slide 1 table as rows of CELLS (each cell = concatenated <a:t> runs). */
+  async function slide1TableCells(blob: Blob): Promise<string[][]> {
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const xml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    return [...xml.matchAll(/<a:tr\b[\s\S]*?<\/a:tr>/g)].map((row) =>
+      [...row[0].matchAll(/<a:tc\b[\s\S]*?<\/a:tc>/g)].map((cell) =>
+        [...cell[0].matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+          .map((t) => t[1])
+          .join("")
+      )
+    );
+  }
+
+  function columnOf(header: string[], needle: string): number {
+    const index = header.findIndex((h) => h.replace(/\s+/g, "").includes(needle));
+    expect(index, `column ${needle} in ${JSON.stringify(header)}`).toBeGreaterThan(-1);
+    return index;
+  }
+
+  function dataWithUptime(
+    facilityUptimeMonthly: number | null,
+    facilityUptimeYtd: number | null,
+    pmComplianceYtd = 99.996
+  ): MonthlyKpiPresentation {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      facilityUptime: facilityUptimeMonthly,
+      pmCompliance: pmComplianceYtd,
+    });
+    data.selectedBusinessUnit = "AMD-EZ";
+    const selected = data.buScorecards.find((b) => b.businessUnit === "AMD-EZ")!;
+    selected.ytd.facilityUptime = {
+      value: facilityUptimeYtd,
+      status: "success",
+      formatted: String(facilityUptimeYtd),
+    } as unknown as typeof selected.ytd.facilityUptime;
+    // PM Compliance YTD is set only to prove its formatter is UNCHANGED.
+    selected.ytd.pmCompliance = {
+      value: pmComplianceYtd,
+      status: "success",
+      formatted: String(pmComplianceYtd),
+    } as unknown as typeof selected.ytd.pmCompliance;
+    return data;
+  }
+
+  it("renders the below-100 edge as 99.99% in the monthly AND YTD rows (never 100% / 100.00%)", async () => {
+    const blob = await generateMonthlyKpiPresentation(
+      dataWithUptime(EDGE_UPTIME, EDGE_UPTIME)
+    );
+    const rows = await slide1TableCells(blob);
+    const uptimeColumn = columnOf(rows[0], "FacilityUptime");
+
+    for (let month = 1; month <= 8; month++) {
+      expect(rows[month][uptimeColumn], `month ${month}`).toBe("99.99%");
+    }
+    // YTD row is the second-to-last row of the table.
+    expect(rows[rows.length - 2][uptimeColumn]).toBe("99.99%");
+
+    const uptimeCells = rows.map((r) => r[uptimeColumn] ?? "");
+    expect(uptimeCells).not.toContain("100%");
+    expect(uptimeCells).not.toContain("100.00%");
+  });
+
+  it("renders authoritative exact 100 as 100% (never 100.00%)", async () => {
+    const blob = await generateMonthlyKpiPresentation(dataWithUptime(100, 100));
+    const rows = await slide1TableCells(blob);
+    const uptimeColumn = columnOf(rows[0], "FacilityUptime");
+
+    expect(rows[8][uptimeColumn]).toBe("100%");
+    expect(rows[rows.length - 2][uptimeColumn]).toBe("100%");
+    expect(rows.map((r) => r[uptimeColumn] ?? "")).not.toContain("100.00%");
+  });
+
+  it("keeps 99.89% YTD values and PM Compliance formatting unchanged", async () => {
+    const blob = await generateMonthlyKpiPresentation(dataWithUptime(99.89, 99.89, 99.996));
+    const rows = await slide1TableCells(blob);
+    const uptimeColumn = columnOf(rows[0], "FacilityUptime");
+    const pmColumn = columnOf(rows[0], "PMCompliance");
+
+    expect(rows[8][uptimeColumn]).toBe("99.89%");
+    expect(rows[rows.length - 2][uptimeColumn]).toBe("99.89%");
+    // PM Compliance formatter intentionally untouched by PR #427.
+    expect(rows[rows.length - 2][pmColumn]).toBe("99.996%");
+  });
+});

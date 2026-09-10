@@ -32,6 +32,7 @@ import {
   formatThresholdBenchmark,
   getDefaultMonthlyKpiThresholdConfig,
 } from "./kpiThresholds";
+import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
 
 export const ALL_BUSINESS_UNITS_LABEL = "All Business Units";
 
@@ -177,6 +178,10 @@ function formatValue(key: ScorecardKpiKey2, value: number | null): string {
     const cmShare = 100 - value;
     if (cmShare <= 0) return "No CM";
     return `${value.toFixed(1)}% (${(value / cmShare).toFixed(1)}:1)`;
+  }
+  if (key === "facilityUptime") {
+    // Facility Uptime (PR #427): max two decimals, never 100% when below 100.
+    return formatFacilityUptimePercent(value);
   }
   return `${value.toFixed(2)}%`;
 }

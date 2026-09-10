@@ -34,6 +34,7 @@ import type {
 } from "../../monthly-kpi/types";
 import { writeNotesSituationReadout } from "../framework/readoutText";
 import { cleanMonthlyKpiPresentationZip } from "../framework/presentationCleanup";
+import { formatFacilityUptimePercent } from "@/modules/monthly-kpi/facilityUptimeDisplay";
 import { buildExecutiveReadoutLines } from "../../monthly-kpi/executiveReadout";
 import {
   evaluateKpiStatus,
@@ -183,7 +184,13 @@ function formatDisplayValue(key: ScorecardKpiKey, value: number | null): string 
     if (cmShare <= 0) return `${pct}% (No CM)`;
     return `${pct}% (${(value / cmShare).toFixed(1)}:1)`;
   }
-  if (key === "pmCompliance" || key === "facilityUptime") {
+  if (key === "facilityUptime") {
+    // Facility Uptime (PR #427): max two decimals; below-100 is truncated so it
+    // can never be displayed as 100% / 100.00%.
+    return formatFacilityUptimePercent(value);
+  }
+  if (key === "pmCompliance") {
+    // PM Compliance formatting is intentionally UNCHANGED (PR #427 scope).
     return formatPrecisePercent(value);
   }
   return `${Math.round(value)}%`;

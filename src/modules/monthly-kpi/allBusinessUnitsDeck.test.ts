@@ -5,7 +5,11 @@ import {
   deriveMissingDataReasons,
   normalizeStoredCommentary,
 } from "./allBusinessUnitsData";
-import { formatScorecardCell, generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
+import {
+  formatScorecardCell,
+  generateAllBusinessUnitsMonthlyKpiDeck,
+  scorecardCellFill,
+} from "./allBusinessUnitsDeck";
 import { isMonthlyKpiBodyPart } from "../executive-presentations/framework/presentationCleanup";
 import { evaluateKpiStatus, getDefaultMonthlyKpiThresholdConfig } from "./kpiThresholds";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
@@ -1727,8 +1731,10 @@ describe("PM Compliance / Facility Uptime precision (follow-up after PR #424)", 
     expect(formatScorecardCell("pmCompliance", 100)).toBe("100%");
     expect(formatScorecardCell("facilityUptime", 99.96)).toBe("99.96%");
     expect(formatScorecardCell("facilityUptime", 99.5)).toBe("99.5%");
-    // 99.996% must NEVER display as 100% (it fails the =100% target).
-    expect(formatScorecardCell("facilityUptime", 99.996)).toBe("99.996%");
+    // Facility Uptime (PR #427): max two decimals, and a below-100 value is
+    // truncated so it can never be displayed as 100% / 100.00%.
+    expect(formatScorecardCell("facilityUptime", 99.996)).toBe("99.99%");
+    // PM Compliance formatting is intentionally UNCHANGED by PR #427.
     expect(formatScorecardCell("pmCompliance", 99.996)).toBe("99.996%");
   });
 
@@ -1775,5 +1781,135 @@ describe("generated All-BU deck OOXML integrity — no empty text bodies (PR #42
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const deckText = (await orderedSlideXml(zip)).map((s) => s.xml).join("\n");
     expect(deckText).not.toContain("Calculation methodology");
+  });
+});
+
+describe("Facility Uptime display precision (PR #427)", () => {
+  // The supplied production example: CWC March Facility Uptime.
+  const EDGE_UPTIME = 99.99621384219294;
+  const EDGE_OPERATING = 1_000_000;
+  // (operating - downtime) / operating * 100 === EDGE_UPTIME
+  const EDGE_DOWNTIME = EDGE_OPERATING - (EDGE_UPTIME / 100) * EDGE_OPERATING;
+
+  const EFFECTIVE_MONTH = 8;
+
+  /** Fixture with a below-100 edge uptime (AMD-EZ) and an exact 100 (Clark Water). */
+  function recordsWithFacilityUptimeEdges(): PersistedMonthlyKpiRecord[] {
+    return records.map((record) => {
+      const rec = { ...record } as Record<string, unknown>;
+      if (Number(record.reporting_month) !== EFFECTIVE_MONTH) {
+        return rec as unknown as PersistedMonthlyKpiRecord;
+      }
+      if (record.business_unit === "AMD-EZ") {
+        rec.facility_operating_time = EDGE_OPERATING;
+        rec.facility_downtime = EDGE_DOWNTIME;
+        rec.facility_uptime = EDGE_UPTIME;
+      }
+      if (record.business_unit === "Clark Water") {
+        rec.facility_operating_time = 1000;
+        rec.facility_downtime = 0;
+        rec.facility_uptime = 100;
+      }
+      return rec as unknown as PersistedMonthlyKpiRecord;
+    });
+  }
+
+  // Scorecard row cells: [Month, PMCompliance, BudgetSpend, PM:CM WO, PM:CM Cost, MTTR, FacilityUptime]
+  function facilityUptimeCellXml(rowXml: string, columnIndex = 6): string {
+    const cells = [...rowXml.matchAll(/<a:tc\b[\s\S]*?<\/a:tc>/g)].map((m) => m[0]);
+    return cells[columnIndex] ?? "";
+  }
+
+  /** Cell FILL colour (the srgbClr inside <a:tcPr>, not the run font colour). */
+  function fillOf(cellXml: string): string {
+    const tcPr = cellXml.match(/<a:tcPr\b[\s\S]*?<\/a:tcPr>/)?.[0] ?? "";
+    return tcPr.match(/<a:srgbClr val="([0-9A-Fa-f]{6})"\/>/)?.[1] ?? "";
+  }
+
+  it("scorecard cell shows the edge value as 99.99% and never as 100%/100.00%", () => {
+    expect(formatScorecardCell("facilityUptime", EDGE_UPTIME)).toBe("99.99%");
+    expect(formatScorecardCell("facilityUptime", EDGE_UPTIME)).not.toBe("100%");
+    expect(formatScorecardCell("facilityUptime", EDGE_UPTIME)).not.toBe("100.00%");
+    expect(formatScorecardCell("facilityUptime", 99.999)).toBe("99.99%");
+    expect(formatScorecardCell("facilityUptime", 100)).toBe("100%");
+    expect(formatScorecardCell("facilityUptime", 99.89)).toBe("99.89%");
+    expect(formatScorecardCell("facilityUptime", 99.9)).toBe("99.9%");
+  });
+
+  it("status/colour still come from the full-precision value (edge stays below target)", () => {
+    const cfg = getDefaultMonthlyKpiThresholdConfig();
+    expect(evaluateKpiStatus("facilityUptime", EDGE_UPTIME, cfg).status).toBe("amber");
+    expect(evaluateKpiStatus("facilityUptime", 100, cfg).status).toBe("green");
+    expect(scorecardCellFill("facilityUptime", EDGE_UPTIME)).toBe("FFD966");
+    expect(scorecardCellFill("facilityUptime", 100)).toBe("A9D18E");
+  });
+
+  it("generated All-BU deck: edge month renders 99.99% (amber) and exact 100 renders 100% (green)", async () => {
+    const edgeRecords = recordsWithFacilityUptimeEdges();
+    const data = buildAllBusinessUnitsDeckData(edgeRecords, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    const indexOf = (bu: string) => data.sections.findIndex((s) => s.businessUnit === bu);
+    const scorecardSlide = (bu: string) => slides[1 + indexOf(bu) * 2].xml;
+
+    const rowsFor = (bu: string) => [...scorecardSlide(bu).matchAll(/<a:tr\b[\s\S]*?<\/a:tr>/g)].map((m) => m[0]);
+
+    // AMD-EZ: effective month (August) row + YTD row.
+    const amdRows = rowsFor("AMD-EZ");
+    const augustRow = amdRows[EFFECTIVE_MONTH];
+    const ytdRow = amdRows[amdRows.length - 2];
+    const augustCell = facilityUptimeCellXml(augustRow);
+    const ytdCell = facilityUptimeCellXml(ytdRow);
+
+    expect(augustCell).toContain("99.99%");
+    expect(augustCell).not.toContain("100%");
+    expect(augustCell).not.toContain("100.00%");
+    // Full-precision status: still below the =100% target → amber fill.
+    expect(fillOf(augustCell)).toBe("FFD966");
+
+    const aggregate = aggregateMonthlyKpiRecords(edgeRecords, 2026, data.effectiveReportingMonth);
+    const amdYtd = aggregate.byBusinessUnitMap["AMD-EZ"]?.facilityUptime ?? null;
+    if (amdYtd !== null && amdYtd < 100) {
+      expect(ytdCell).not.toContain("100%");
+      expect(ytdCell).not.toContain("100.00%");
+    }
+
+    // Clark Water: authoritative exact 100 must read 100% (never 100.00%).
+    const cwcRows = rowsFor("Clark Water");
+    const exactCell = facilityUptimeCellXml(cwcRows[EFFECTIVE_MONTH]);
+    expect(exactCell).toContain("100%");
+    expect(exactCell).not.toContain("100.00%");
+    expect(fillOf(exactCell)).toBe("A9D18E");
+  });
+
+  it("invariant: no generated Facility Uptime cell shows 100% unless the authoritative value is exactly 100", async () => {
+    const edgeRecords = recordsWithFacilityUptimeEdges();
+    const data = buildAllBusinessUnitsDeckData(edgeRecords, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+    const effective = data.effectiveReportingMonth;
+
+    for (let i = 0; i < data.sections.length; i++) {
+      const section = data.sections[i];
+      const xml = slides[1 + i * 2].xml;
+      const rows = [...xml.matchAll(/<a:tr\b[\s\S]*?<\/a:tr>/g)].map((m) => m[0]);
+      for (let month = 1; month <= effective; month++) {
+        const cellText = (facilityUptimeCellXml(rows[month]).match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g) ?? [])
+          .map((t) => t.replace(/<[^>]+>/g, ""))
+          .join("");
+        const trend = section.trends.find((point) => point.month === month);
+        const value = trend?.facilityUptimeMonthly ?? null;
+        if (cellText === "100%" || cellText === "100.00%") {
+          expect(value, `${section.businessUnit} month ${month}`).toBe(100);
+        }
+        if (value !== null && value < 100) {
+          expect(cellText, `${section.businessUnit} month ${month}`).not.toBe("100%");
+          expect(cellText, `${section.businessUnit} month ${month}`).not.toBe("100.00%");
+        }
+      }
+    }
   });
 });
