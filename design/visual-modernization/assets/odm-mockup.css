@@ -326,3 +326,21 @@
 .odm-breadcrumb-sep { color: var(--odm-text-faint); margin: 0 2px; }
 .odm-tree--host { position: relative; }
 .odm-contextmenu { position: absolute; left: 178px; top: 152px; z-index: 10; }
+
+/* ── Monthly KPI: gauge info glyph, tab panel, BU drill-down ───────────── */
+.odm-kpi-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.odm-kpi-info { display: inline-flex; color: var(--odm-text-faint); cursor: help; }
+.odm-kpi-info svg { width: 12px; height: 12px; }
+.odm-tabs--panel { display: flex; width: 100%; }
+.odm-view-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0 14px;
+  font-size: 11px; color: var(--odm-text-faint); text-transform: uppercase; letter-spacing: .08em; }
+.odm-view-divider::before, .odm-view-divider::after { content: ""; height: 1px; background: var(--odm-border); flex: 1; }
+.odm-bu-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px;
+  background: var(--odm-blue-soft); border: 1px solid var(--odm-blue-border); border-radius: var(--odm-r-md); }
+
+/* ── Governance: phase bands + per-row upload status ───────────────────── */
+.odm-phase-band td { background: var(--odm-surface-sunk) !important; padding: 5px 12px !important;
+  font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--odm-text-muted); }
+.odm-band-dot { display: inline-block; width: 7px; height: 7px; border-radius: 999px; margin-right: 7px; }
+.odm-band-range { margin-left: 10px; font-weight: 600; letter-spacing: .04em; color: var(--odm-text-faint); }
+.odm-ms-uploads { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 10.5px; }

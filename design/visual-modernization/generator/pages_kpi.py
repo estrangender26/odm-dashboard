@@ -93,17 +93,21 @@ def sparkline(color, height=54, bars=12):
 
 def kpi_body():
     tiles = ""
+    info_glyph = svg("info")
     for t in KPI_TILES:
         label, kind = t["status"]
         sub = ' <span class="odm-kpi-unit">%s</span>' % t["sub"] if t.get("sub") else ""
         tiles += (
             '<div class="odm-kpi odm-kpi--%s">'
-            '<div class="odm-kpi-label">%s</div>'
+            '<div class="odm-kpi-label"><span>%s</span>'
+            '<span class="odm-kpi-info" title="Formula, Target and Interpretation">%s</span></div>'
             '<div class="odm-kpi-value">%s<span class="odm-kpi-unit">%s</span>%s</div>'
             '<div class="odm-progress odm-progress--%s odm-mt-2"><i style="width:%d%%"></i></div>'
             '<div class="odm-kpi-foot"><span class="odm-badge odm-badge--%s">%s</span>'
-            '<span>Benchmark %s</span></div>'
-            '</div>' % (kind, t["name"], t["value"], t["unit"], sub, kind, t["fill"], kind, label, t["bench"])
+            '<span>Benchmark: %s</span></div>'
+            '</div>'
+            % (kind, t["name"], info_glyph, t["value"], t["unit"], sub, kind, t["fill"],
+               kind, label, t["bench"])
         )
 
     trends = "".join(
@@ -162,17 +166,18 @@ def kpi_body():
         '    <span class="odm-toolbar-sep"></span>\n'
         '    <button class="odm-btn">' + svg("square-pen") + 'Input Data Manually</button>\n'
         '    <button class="odm-btn">' + svg("upload") + 'Import Excel</button>\n'
+        '    <button class="odm-btn odm-btn--danger" title="Clear Monthly KPI records for the selected scope.">'
+        + svg("trash-2") + 'Clear</button>\n'
         '    <button class="odm-btn">' + svg("download") + 'Export Data' + svg("chevron-down") + '</button>\n'
         '    <button class="odm-btn">' + svg("sliders-horizontal") + 'Thresholds</button>\n'
-        '    <button class="odm-btn odm-btn--danger">' + svg("trash-2") + 'Clear</button>\n'
         '    <div class="odm-toolbar-spacer"></div>\n'
-        '    <div class="odm-tabs">'
-        '<button class="odm-tab odm-tab--active">Summary Matrix</button>'
-        '<button class="odm-tab">Definitions / FAQ</button>'
-        '<button class="odm-tab">Scope / Inclusions</button></div>\n'
         '  </div>\n'
 
         # Legend — four states, dots only, no decoration
+        '  <div class="odm-tabs odm-tabs--panel odm-mt-3">'
+        '<button class="odm-tab odm-tab--active">Summary Matrix</button>'
+        '<button class="odm-tab">Definitions / FAQ</button>'
+        '<button class="odm-tab">Scope / Inclusions</button></div>\n'
         '  <div class="odm-legend odm-mt-3">' +
         legend_dot("#0A9B6E", "KPI Passed / Meets or Exceeds Benchmark") +
         legend_dot("#D97706", "Warning / Marginal Performance") +
@@ -192,15 +197,20 @@ def kpi_body():
         '  </section>\n'
 
         '  <section class="odm-section">' +
-        section("Summary Matrix") +
+        section("Summary Matrix",
+                right='<span class="odm-faint" style="font-size:11.5px">Row click opens the Business Unit view</span>') +
         '    <div class="odm-card"><div class="odm-table-wrap"><table class="odm-table">'
         '<thead><tr>' + matrix_head + '</tr></thead><tbody>' + matrix_rows + '</tbody></table></div></div>\n'
         '  </section>\n'
 
-        '  <section class="odm-section">' +
-        section("2026 Imported Monthly KPI Records",
-                right='<span class="odm-faint" style="font-size:11.5px">Business Unit: AMD-EZ</span>'
-                      '<span class="odm-badge odm-badge--neutral">5 months imported</span>') +
+        # The Business Unit view is a real view with no tab button of its own —
+        # it opens when a summary row is clicked. Shown here as that state.
+        '  <div class="odm-view-divider"><span>Opens on clicking a Summary Matrix row</span></div>\n'
+        '  <section class="odm-section">'
+        '    <div class="odm-bu-bar"><span class="odm-eyebrow">Business Unit</span>'
+        '<span class="odm-strong">AMD-EZ</span>'
+        '<span class="odm-badge odm-badge--neutral">5 months imported</span></div>\n' +
+        section("2026 Imported Monthly KPI Records") +
         '    <div class="odm-card"><div class="odm-table-wrap"><table class="odm-table">'
         '<thead><tr>' + rec_head + '</tr></thead><tbody>' + rec_rows + '</tbody></table></div>'
         '<div class="odm-table-foot"><span>Showing 5 of 12 months imported</span>'

@@ -84,20 +84,36 @@ def scurve_svg():
 
 def gov_body():
     rows = ""
+    band_specs = [("PRE-PPP", "M1&ndash;M3", "#00A8D2"), ("PPP", "M4&ndash;M6", "#2AAA8A"),
+                  ("POST-PPP", "M7&ndash;M9", "#0066A6")]
+    current_phase = None
     for code, name, offset, phase, phase_color, status, label in MILESTONES:
+        if phase != current_phase:
+            current_phase = phase
+            spec = next(b for b in band_specs if b[0] == phase)
+            rows += ('<tr class="odm-phase-band"><td colspan="7">'
+                     '<span class="odm-band-dot" style="background:%s"></span>%s'
+                     '<span class="odm-band-range">%s</span></td></tr>' % (spec[2], spec[0], spec[1]))
         color, cls = READY_CHIP[status]
         done = "checked" if status in ("achieved",) else ""
         check = ('<span class="odm-check odm-check--on">%s</span>' % svg("check")) if done else '<span class="odm-check"></span>'
+        uploads = {"achieved": (3, 3, True), "in_progress": (2, 3, False),
+                   "planned_open": (0, 3, False), "upcoming": (0, 3, False)}[status]
+        up_n, up_m, ready = uploads
+        up_badge = ('<span class="odm-badge odm-badge--%s">%s</span>'
+                    % ("success" if ready else "danger", "READY" if ready else "INCOMPLETE"))
         rows += (
             '<tr>'
             '<td class="strong">%s</td>'
-            '<td>%s<div class="odm-ms-phase"><span class="odm-dot" style="background:%s"></span>%s</div></td>'
+            '<td>%s<div class="odm-ms-phase"><span class="odm-dot" style="background:%s"></span>%s</div>'
+            '<div class="odm-ms-uploads"><span class="odm-faint">%d / %d uploads</span>%s</div></td>'
             '<td class="muted">%s</td>'
             '<td class="odm-num">2026-%s</td>'
             '<td class="odm-num">&mdash;</td>'
             '<td><span class="odm-chip %s">%s</span></td>'
             '<td>%s</td>'
-            '</tr>' % (code, name, phase_color, phase, offset, ("0%d" % (int(code[1]) + 2)), cls, label, check)
+            '</tr>' % (code, name, phase_color, phase, up_n, up_m, up_badge, offset,
+                       ("0%d" % (int(code[1]) + 2)), cls, label, check)
         )
 
     return (
@@ -176,7 +192,7 @@ def gov_body():
         '      <tbody>' + rows + '</tbody>\n'
         '    </table></div>\n'
         '    <div class="odm-table-foot"><span>PRE-PPP M1&ndash;M3 &nbsp;&middot;&nbsp; PPP M4&ndash;M6 &nbsp;&middot;&nbsp; POST-PPP M7&ndash;M9</span>'
-        '<span class="odm-row">' + svg("info") + '<span>Milestones completed out of 9 total</span></span></div>\n'
+        '<span class="odm-row">' + svg("info") + '<span>Milestones completed out of 9 total &middot; TOC items with uploaded documents out of 14 total</span></span></div>\n'
         '    </div>\n'
         '  </section>\n'
         '</main>\n'
