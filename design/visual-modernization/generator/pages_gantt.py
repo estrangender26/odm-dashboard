@@ -4,7 +4,9 @@ transcribed verbatim from the current application."""
 from odm_icons import svg
 
 
-def module_header(title, subtitle, back=True, extra=""):
+def module_header(title, subtitle, back=False, extra=""):
+    # Only the Projects without PPP page carries a separate back control today;
+    # on every other module the brand block itself is the link home.
     back_html = ('<a class="odm-hdr-btn" href="home.html">' + svg("panel-left") + 'Dashboard Suite</a>') if back else ""
     return (
         '<header class="odm-hdr">\n  <div class="odm-hdr-in">\n'

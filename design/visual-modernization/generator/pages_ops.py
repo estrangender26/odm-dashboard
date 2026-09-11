@@ -78,7 +78,7 @@ def projects_body():
     )
 
     return (
-        module_header("Projects without PPP &mdash; Masterdata Submittal Monitoring", "Monitoring") +
+        module_header("Projects without PPP &mdash; Masterdata Submittal Monitoring", "Monitoring", back=True) +
         # Sub-bar: panel title + live counter, exactly as today
         '<div class="odm-subbar"><div class="odm-subbar-in">\n'
         '  <span class="odm-section-title">Projects without PPP &mdash; Masterdata Submittal</span>\n'
@@ -104,8 +104,7 @@ def projects_body():
         '<table class="odm-table odm-table--compact"><thead><tr>' + head + '</tr></thead>'
         '<tbody>' + rows + '</tbody></table></div>\n'
         '      <div class="odm-table-foot"><span>Showing 5 of 50 projects</span>'
-        '<span class="odm-row"><button class="odm-btn odm-btn--sm">Previous</button>'
-        '<button class="odm-btn odm-btn--sm">Next</button></span></div>\n'
+        '<span class="odm-faint">Ordered by Tracking ID</span></div>\n'
         '    </div>\n'
         '  </section>\n'
         '</main>\n'
@@ -279,7 +278,7 @@ def odm_body():
         '      <div class="odm-table-wrap"><table class="odm-table odm-table--compact">'
         '<thead><tr>' + dq_head + '</tr></thead><tbody>' + dq_rows + '</tbody></table></div>\n'
         '      <div class="odm-table-foot"><span>Showing 4 of 14 records with issues</span>'
-        '<span class="odm-row">' + svg("chevron-right") + 'Next</span></div>\n'
+        '<span class="odm-faint">Sorted by Date, newest first</span></div>\n'
         '    </div>\n'
         '  </section>\n'
 

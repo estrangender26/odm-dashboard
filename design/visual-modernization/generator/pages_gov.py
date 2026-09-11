@@ -176,7 +176,7 @@ def gov_body():
         '      <tbody>' + rows + '</tbody>\n'
         '    </table></div>\n'
         '    <div class="odm-table-foot"><span>PRE-PPP M1&ndash;M3 &nbsp;&middot;&nbsp; PPP M4&ndash;M6 &nbsp;&middot;&nbsp; POST-PPP M7&ndash;M9</span>'
-        '<span class="odm-row">' + svg("info") + '<span>Status derived from evidence unless manually overridden</span></span></div>\n'
+        '<span class="odm-row">' + svg("info") + '<span>Milestones completed out of 9 total</span></span></div>\n'
         '    </div>\n'
         '  </section>\n'
         '</main>\n'

@@ -141,9 +141,7 @@ def kpi_body():
         '      <span class="odm-brand-mark">ODM</span>\n'
         '      <span><h1>Monthly Scorecard: Maintenance KPIs</h1><span>Programs</span></span>\n'
         '    </div>\n'
-        '    <div class="odm-hdr-actions">\n'
-        '      <a class="odm-hdr-btn" href="home.html">' + svg("panel-left") + 'Dashboard Suite</a>\n'
-        '    </div>\n'
+        '    <div class="odm-hdr-actions"></div>\n'
         '  </div>\n'
         '</header>\n'
 
@@ -185,8 +183,7 @@ def kpi_body():
         '  <section class="odm-section odm-mt-4">' + section("2026 - EZ &amp; Non-EZ Monthly KPI/Scorecard") + '</section>\n'
 
         '  <section class="odm-section">' +
-        section("Portfolio Average KPI Cards",
-                right='<span class="odm-faint" style="font-size:11.5px">6 KPIs &middot; benchmark shown per tile</span>') +
+        section("Portfolio Average KPI Cards") +
         '    <div class="odm-kpi-grid">' + tiles + '</div>\n'
         '  </section>\n'
 
@@ -195,18 +192,19 @@ def kpi_body():
         '  </section>\n'
 
         '  <section class="odm-section">' +
-        section("Summary Matrix", right='<span class="odm-badge odm-badge--neutral">BENCHMARK row pinned</span>') +
+        section("Summary Matrix") +
         '    <div class="odm-card"><div class="odm-table-wrap"><table class="odm-table">'
         '<thead><tr>' + matrix_head + '</tr></thead><tbody>' + matrix_rows + '</tbody></table></div></div>\n'
         '  </section>\n'
 
         '  <section class="odm-section">' +
-        section("AM 2026 &mdash; AMD-EZ Imported Monthly KPI Records",
-                right='<span class="odm-badge odm-badge--neutral">5 months imported</span>') +
+        section("2026 Imported Monthly KPI Records",
+                right='<span class="odm-faint" style="font-size:11.5px">Business Unit: AMD-EZ</span>'
+                      '<span class="odm-badge odm-badge--neutral">5 months imported</span>') +
         '    <div class="odm-card"><div class="odm-table-wrap"><table class="odm-table">'
         '<thead><tr>' + rec_head + '</tr></thead><tbody>' + rec_rows + '</tbody></table></div>'
-        '<div class="odm-table-foot"><span>Showing 5 of 12 months</span>'
-        '<span class="odm-row">' + svg("chevron-right") + 'Next</span></div></div>\n'
+        '<div class="odm-table-foot"><span>Showing 5 of 12 months imported</span>'
+        '<span class="odm-faint">Month order: January &rarr; December</span></div></div>\n'
         '  </section>\n'
         '</main>\n'
         '<footer class="odm-footer"><div class="odm-footer-in">Program Oversight Center &copy; 2026</div></footer>\n'
