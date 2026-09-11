@@ -553,3 +553,19 @@
   .odm-gantt-grid { grid-template-columns: 1fr; }
   .odm-main { padding: 16px 12px 28px; }
 }
+
+/* ── 22. SCROLLBARS ────────────────────────────────────────────────────────
+   Adopted from the external reference (satnaing/shadcn-admin sets
+   `scrollbar-width: thin; scrollbar-color: var(--border) transparent`).
+   ODM has many horizontally scrollable engineering tables, so a quiet, thin
+   scrollbar is a functional improvement, not decoration. */
+.odm-app * { scrollbar-width: thin; scrollbar-color: var(--odm-border-strong) transparent; }
+.odm-app *::-webkit-scrollbar { width: 9px; height: 9px; }
+.odm-app *::-webkit-scrollbar-track { background: transparent; }
+.odm-app *::-webkit-scrollbar-thumb {
+  background: var(--odm-border-strong); border-radius: var(--odm-r-pill);
+  border: 2px solid transparent; background-clip: content-box;
+}
+.odm-app *::-webkit-scrollbar-thumb:hover { background: var(--odm-text-faint); background-clip: content-box; }
+.odm-no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.odm-no-scrollbar::-webkit-scrollbar { display: none; }
