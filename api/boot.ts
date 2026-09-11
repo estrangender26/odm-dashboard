@@ -1154,106 +1154,6 @@ app.get("/api/health/db", async (c) => {
   }
 });
 
-function isDuplicateCleanupDbUnavailable(error: unknown): boolean {
-  const e = error as { code?: string; message?: string; name?: string } | undefined;
-  const message = e?.message?.toLowerCase() ?? "";
-  const code = e?.code?.toLowerCase() ?? "";
-
-  return [
-    "database_url not set",
-    "database",
-    "connection",
-    "connect",
-    "dns",
-    "enotfound",
-    "econnrefused",
-    "econnreset",
-    "timeout",
-    "terminating connection",
-  ].some(term => message.includes(term) || code.includes(term));
-}
-
-logBootStage("registering duplicate cleanup dry-run endpoint");
-app.post("/api/admin/tasks/duplicate-cleanup/dry-run", async (c) => {
-  try {
-    const user = await authenticateRequest(c.req.raw.headers);
-    if (user.role !== "admin") {
-      return c.json({ error: "Admin role required" }, 403);
-    }
-
-    const body = await c.req.json().catch(() => ({}));
-    const dataset = body?.dataset as "htt" | "aglipay" | undefined;
-    if (dataset !== undefined && !["htt", "aglipay"].includes(dataset)) {
-      return c.json({ error: "Invalid dataset. Use htt or aglipay." }, 400);
-    }
-
-    console.info("[tasks/duplicateCleanup/dry-run] started", {
-      requestedBy: user.id,
-      dataset: dataset ?? "all",
-    });
-
-    const { getDb } = await import("./queries/connection");
-    const {
-      exportDuplicateCleanupDryRun,
-      runMaintenanceDuplicateCleanup,
-    } = await import("./tasks-duplicate-cleanup");
-    const db = getDb();
-    const result = await runMaintenanceDuplicateCleanup(db, {
-      dataset,
-      dryRun: true,
-      apply: false,
-    });
-    const payload = await exportDuplicateCleanupDryRun(result, {
-      dataset,
-      csvPath: "reports/task-duplicate-dry-run.csv",
-    });
-
-    console.info("[tasks/duplicateCleanup/dry-run] completed", {
-      requestedBy: user.id,
-      dataset: dataset ?? "all",
-      duplicateGroupCount: payload.duplicateGroupCount,
-      duplicateRowCount: payload.duplicateRowCount,
-      rowsProposedForDeletion: payload.rowsProposedForDeletion.length,
-      rowsProposedForRetention: payload.rowsProposedForRetention.length,
-      conflictGroups: payload.conflictGroups,
-      csvPath: payload.exported.csvPath,
-    });
-
-    return c.json(payload);
-  } catch (error) {
-    const e = error as {
-      tag?: string;
-      status?: number;
-      message?: string;
-      stack?: string;
-    };
-    if (e?.tag === "app_error" && e.status === 403) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
-    if (e?.message === "Missing session" || e?.message === "Invalid session") {
-      return c.json({ error: "Authentication required" }, 401);
-    }
-    if (isDuplicateCleanupDbUnavailable(error)) {
-      console.error("[tasks/duplicateCleanup/dry-run] DB error isolated", {
-        message: e?.message ?? String(error),
-        stack: e?.stack,
-      });
-      return c.json(
-        { error: "Database unavailable. Duplicate cleanup dry-run was not run." },
-        503
-      );
-    }
-
-    console.error("[tasks/duplicateCleanup/dry-run] failed", {
-      message: e?.message ?? String(error),
-      stack: e?.stack,
-    });
-    return c.json({ error: e?.message ?? "Duplicate cleanup dry-run failed" }, 500);
-  }
-});
-console.info("[tasks/duplicateCleanup] dry-run endpoint registered");
-logBootStage("duplicate cleanup dry-run endpoint registration complete");
-
 logBootStage("registering governance file and debug routes");
 
 async function requireFileRequestUser(c: Context): Promise<Response | null> {
@@ -1974,15 +1874,6 @@ app.use("/api/trpc/*", async (c) => {
     router: appRouter,
     createContext,
   });
-
-  if (c.req.path.includes("tasks.import")) {
-    const rawBody = await response.clone().text();
-    console.info("[tasks/import] backend raw response body", {
-      path: c.req.path,
-      status: response.status,
-      rawBody,
-    });
-  }
 
   return response;
 });

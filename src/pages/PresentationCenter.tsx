@@ -66,8 +66,6 @@ const categoryOptions: PresentationCategory[] = [
   "Monthly KPI Scorecard",
   "O&M Manual Library",
   "O&M Manual Governance",
-  "Post-PPP Planning",
-  "Maintenance Planning",
   "Standard Maintenance Procedures",
   "Gantt Planner",
   "Operator Driven Maintenance",

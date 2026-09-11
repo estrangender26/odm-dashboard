@@ -274,6 +274,13 @@
       "tag": "0038_monthly_kpi_situation",
       "when": 1791312000044,
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "tag": "0039_decommission_maintenance_planning",
+      "when": 1791312000045,
+      "breakpoints": true
     }
   ]
 }

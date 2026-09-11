@@ -1,0 +1,41 @@
+-- Migration 0039: Maintenance Planning (Post-PPP) module decommission.
+--
+-- Drops exactly these two tables, which existed only to serve the
+-- "Maintenance Planning (Post-PPP)" module and the "Post-Planning Insights &
+-- Action Plan" module. Both modules were removed from the application in the
+-- same change set.
+--
+--   public.tasks       -- HTT STP / Aglipay STP maintenance task rows
+--   public.equipment   -- equipment lookup for those task rows
+--
+-- Ownership evidence (production inventory taken before this migration):
+--   * No foreign key constraint in any schema references either table.
+--   * No view, materialized view, function, procedure, or trigger in any
+--     non-system schema references either table.
+--   * No other table carries a soft reference: the only other *_id column,
+--     public.smp_task_applicability.task_id, references public.smp_tasks
+--     (Standard Maintenance Procedures), not public.tasks.
+--   * Runtime references at removal time were only:
+--       api/tasks-router.ts, api/tasks-import.ts, api/tasks-duplicate-cleanup.ts,
+--       api/seed-router.ts, db/seed.ts, db/seed-governance.ts,
+--       api/queries/connection.ts (ensureTasksProcedureFamiliarityColumn),
+--       src/pages/Dashboard.tsx, src/pages/PostPlanningInsights.tsx.
+--     All of those were deleted or edited in the same change set, so no
+--     retained module reads or writes these tables.
+--
+-- Drop order: tasks first, then equipment. There is no FK between them
+-- (tasks.equipment_id was never declared as a constraint), but dropping the
+-- dependent table first keeps the order semantically correct if a constraint
+-- is ever reintroduced.
+--
+-- CASCADE is intentionally not used. Plain DROP TABLE (equivalent to RESTRICT)
+-- ensures that any unexpected dependency causes the migration to fail rather
+-- than silently destroying dependent objects.
+--
+-- Sequence values, indexes, primary keys, and the RLS state enabled by
+-- migration 0028 are dropped together with the tables; nothing else references
+-- them. A preflight query, a verification query, and a recovery plan accompany
+-- this migration (see db/migrations/helpers/).
+
+DROP TABLE public.tasks;
+DROP TABLE public.equipment;

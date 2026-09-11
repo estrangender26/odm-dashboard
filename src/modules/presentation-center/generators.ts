@@ -1577,38 +1577,6 @@ const placeholderGenerators: DeckGenerator[] = [
     generate: generateGovernancePresentation,
   },
   {
-    id: "post-ppp-planning",
-    title: "Post-PPP Planning Deck",
-    description:
-      "Reserved generator for post-PPP transition insights, planning priorities, handover risks, and implementation roadmap updates.",
-    category: "Post-PPP Planning",
-    status: "coming-soon",
-    slideOutline: [
-      "Transition overview",
-      "Planning priorities",
-      "Handover risks",
-      "Implementation roadmap",
-      "Decision log",
-    ],
-    enabled: false,
-  },
-  {
-    id: "maintenance-planning",
-    title: "Maintenance Planning Deck",
-    description:
-      "Reserved generator for planned maintenance workload, resource forecasts, backlog posture, and readiness actions.",
-    category: "Maintenance Planning",
-    status: "coming-soon",
-    slideOutline: [
-      "Planning summary",
-      "Workload forecast",
-      "Resource needs",
-      "Backlog posture",
-      "Readiness actions",
-    ],
-    enabled: false,
-  },
-  {
     id: "standard-maintenance-procedures",
     title: "Standard Maintenance Procedures Deck",
     description:

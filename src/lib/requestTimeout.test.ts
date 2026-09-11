@@ -35,14 +35,10 @@ describe("getRequestTimeoutMs", () => {
     expect(result.timeoutDisabled).toBe(false);
   });
 
-  it("gives import requests an adaptive timeout", () => {
-    const result = getRequestTimeoutMs({
-      requestUrl: "/api/trpc/tasks.import",
-      body: JSON.stringify({ json: { rows: new Array(500).fill({}) } }),
-    });
-    expect(result.timeoutMs).toBeGreaterThanOrEqual(120_000);
+  it("gives non-upload, non-AI requests the default short timeout regardless of payload size", () => {
+    const result = getRequestTimeoutMs({ requestUrl: "/api/trpc/smp.list" });
+    expect(result.timeoutMs).toBe(DEFAULT_REQUEST_TIMEOUT_MS);
     expect(result.timeoutDisabled).toBe(false);
-    expect(result.payloadRows).toBe(500);
   });
 
   it("gives upload requests a long timeout", () => {

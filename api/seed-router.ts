@@ -1,92 +1,40 @@
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
-import { equipment, tasks, governanceFacilities } from "@db/schema";
-import * as fs from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { governanceFacilities } from "@db/schema";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
+/*
+ * Governance facility reference data.
+ *
+ * Migration 0015_seed_governance_facilities.sql already inserts the four
+ * canonical facilities idempotently; this endpoint remains as the explicit
+ * re-seed path for those rows.
+ *
+ * The Maintenance Planning (Post-PPP) task/equipment seed payload that this
+ * router previously carried was decommissioned together with that module
+ * (migration 0039_decommission_maintenance_planning.sql), so no task or
+ * equipment table is written here anymore.
+ */
 export const seedRouter = createRouter({
   run: publicQuery.mutation(async () => {
     try {
-      // Check if already seeded
-      const existingTasks = await db.select().from(tasks);
-      if (existingTasks.length > 0) {
-        return { success: false, message: "Database already seeded", tasks: existingTasks.length };
-      }
-
-      // Read seed data
-      const pmData = JSON.parse(fs.readFileSync(join(__dirname, "../db/seed-pm.json"), "utf-8"));
-      const maintData = JSON.parse(fs.readFileSync(join(__dirname, "../db/seed-maint.json"), "utf-8"));
-
-      function getInitials(name: string): string {
-        return name.split(/[\s\-\(\[\/]+/).filter(w => w).map(w => w[0]).join("").substring(0, 3).toUpperCase();
-      }
-
-      // Insert PM (HTT STP) equipment
-      const pmEquipMap = new Map<string, number>();
-      for (const row of pmData) {
-        const eqName = row["Equipment Type"] || "Unspecified";
-        if (!pmEquipMap.has(eqName)) {
-          const result = await db.insert(equipment).values({
-            name: eqName,
-            initials: getInitials(eqName),
-          }).returning({ id: equipment.id });
-          const id = result[0].id;
-          pmEquipMap.set(eqName, id);
-        }
-        const equipId = pmEquipMap.get(eqName)!;
-        await db.insert(tasks).values({
-          equipmentId: equipId,
-          taskList: row["Task List"] || "",
-          frequency: row["Frequency"] || "",
-          responsiblePersonnel: row["Responsible Personnel"] || null,
-          operations: row["Operations"] || null,
-          amd: row["AMD"] || null,
-          ard: row["ARD"] || null,
-          dataset: "htt",
-        });
-      }
-
-      // Insert Maintenance (Aglipay STP) equipment
-      const maintEquipMap = new Map<string, number>();
-      for (const row of maintData) {
-        const eqName = row["Equipment Type"] || "Unspecified";
-        if (!maintEquipMap.has(eqName)) {
-          const result = await db.insert(equipment).values({
-            name: eqName,
-            initials: getInitials(eqName),
-          }).returning({ id: equipment.id });
-          const id = result[0].id;
-          maintEquipMap.set(eqName, id);
-        }
-        const equipId = maintEquipMap.get(eqName)!;
-        await db.insert(tasks).values({
-          equipmentId: equipId,
-          taskList: row["Task List"] || "",
-          frequency: row["Frequency"] || "",
-          responsiblePersonnel: row["Responsible Personnel"] || null,
-          operations: row["Operations"] || null,
-          amd: row["AMD"] || null,
-          ard: row["ARD"] || null,
-          dataset: "aglipay",
-        });
-      }
-
-      // Seed governance facilities
-      await db.insert(governanceFacilities).values([
-        { slug: "aglipay", name: "AGLIPAY Sewage Treatment Plant", shortName: "AGLIPAY STP" },
-        { slug: "htt", name: "HTT Sewage Treatment Plant", shortName: "HTT STP" },
-        { slug: "eastbay", name: "EASTBAY Phase 2 Treatment Plant", shortName: "EASTBAY PH-2 TP" },
-        { slug: "kaysakat", name: "KAYSAKAT Treatment Plant", shortName: "KAYSAKAT TP" },
-      ]).onConflictDoNothing();
+      const inserted = await db
+        .insert(governanceFacilities)
+        .values([
+          { slug: "aglipay", name: "AGLIPAY Sewage Treatment Plant", shortName: "AGLIPAY STP" },
+          { slug: "htt", name: "HTT Sewage Treatment Plant", shortName: "HTT STP" },
+          { slug: "eastbay", name: "EASTBAY Phase 2 Treatment Plant", shortName: "EASTBAY PH-2 TP" },
+          { slug: "kaysakat", name: "KAYSAKAT Treatment Plant", shortName: "KAYSAKAT TP" },
+        ])
+        .onConflictDoNothing()
+        .returning({ slug: governanceFacilities.slug });
 
       return {
         success: true,
-        pmTasks: pmData.length,
-        maintTasks: maintData.length,
-        totalTasks: pmData.length + maintData.length,
+        governanceFacilities: inserted.length,
+        message:
+          inserted.length > 0
+            ? `Seeded ${inserted.length} governance facilit${inserted.length === 1 ? "y" : "ies"}`
+            : "Governance facilities already present",
       };
     } catch (error) {
       console.error("Seed error:", error);

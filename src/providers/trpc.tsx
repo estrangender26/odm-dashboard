@@ -52,11 +52,7 @@ const trpcClient = trpc.createClient({
         const originalSignal = init?.signal;
         const startedAt = performance.now();
         const payloadBytes = estimateBodyBytes(init?.body);
-        const { timeoutMs, timeoutDisabled, payloadRows } = getRequestTimeoutMs({
-          requestUrl,
-          body: init?.body,
-        });
-        const isImportRequest = requestUrl.includes("tasks.import");
+        const { timeoutMs, timeoutDisabled } = getRequestTimeoutMs({ requestUrl });
         const isAiChatRequest = requestUrl.includes("ai.maintenanceChat");
         let timedOut = false;
 
@@ -74,17 +70,7 @@ const trpcClient = trpc.createClient({
           : window.setTimeout(() => {
               timedOut = true;
               const elapsedMs = Math.round(performance.now() - startedAt);
-              if (isImportRequest) {
-                console.error("[tasks/import] tRPC fetch timeout abort fired", {
-                  requestUrl,
-                  timeoutSource: "AbortController.abort() via setTimeout",
-                  configuredTimeoutMs: timeoutMs,
-                  timeoutMs,
-                  elapsedMs,
-                  payloadRows,
-                  payloadBytes,
-                });
-              } else if (isAiChatRequest) {
+              if (isAiChatRequest) {
                 console.error("[ai/chat] tRPC fetch timeout abort fired", {
                   timeoutSource: "AbortController.abort() via setTimeout",
                   configuredTimeoutMs: timeoutMs,
@@ -94,17 +80,7 @@ const trpcClient = trpc.createClient({
               controller.abort(REQUEST_TIMEOUT_MESSAGE);
             }, timeoutMs);
 
-        if (isImportRequest) {
-          console.info("[tasks/import] tRPC fetch started", {
-            requestUrl,
-            timeoutSource: timeoutDisabled ? "disabled" : "AbortController.abort() via setTimeout",
-            configuredTimeoutMs: timeoutDisabled ? null : timeoutMs,
-            timeoutMs: timeoutDisabled ? null : timeoutMs,
-            elapsedMs: Math.round(performance.now() - startedAt),
-            payloadRows,
-            payloadBytes,
-          });
-        } else if (isAiChatRequest) {
+        if (isAiChatRequest) {
           console.info("[ai/chat] tRPC fetch started", {
             timeoutSource: timeoutDisabled ? "disabled" : "AbortController.abort() via setTimeout",
             configuredTimeoutMs: timeoutDisabled ? null : timeoutMs,
@@ -118,18 +94,7 @@ const trpcClient = trpc.createClient({
             credentials: "include",
             signal: controller.signal,
           });
-          if (isImportRequest) {
-            console.info("[tasks/import] tRPC fetch response received", {
-              requestUrl,
-              status: response.status,
-              ok: response.ok,
-              configuredTimeoutMs: timeoutDisabled ? null : timeoutMs,
-              timeoutMs: timeoutDisabled ? null : timeoutMs,
-              elapsedMs: Math.round(performance.now() - startedAt),
-              payloadRows,
-              payloadBytes,
-            });
-          } else if (isAiChatRequest) {
+          if (isAiChatRequest) {
             console.info("[ai/chat] tRPC fetch response received", {
               status: response.status,
               ok: response.ok,
@@ -141,21 +106,7 @@ const trpcClient = trpc.createClient({
           return response;
         } catch (error) {
           const elapsedMs = Math.round(performance.now() - startedAt);
-          if (isImportRequest) {
-            console.error("[tasks/import] tRPC fetch failed", {
-              requestUrl,
-              timeoutSource: timeoutDisabled ? "disabled" : "AbortController.abort() via setTimeout",
-              configuredTimeoutMs: timeoutDisabled ? null : timeoutMs,
-              timeoutMs: timeoutDisabled ? null : timeoutMs,
-              elapsedMs,
-              timedOut,
-              aborted: controller.signal.aborted,
-              abortReason: controller.signal.reason,
-              payloadRows,
-              payloadBytes,
-              error,
-            });
-          } else if (isAiChatRequest) {
+          if (isAiChatRequest) {
             console.error("[ai/chat] tRPC fetch failed", {
               timeoutSource: timeoutDisabled ? "disabled" : "AbortController.abort() via setTimeout",
               configuredTimeoutMs: timeoutDisabled ? null : timeoutMs,

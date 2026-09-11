@@ -343,20 +343,13 @@ describe("ODM Dashboard AI web-search routing", () => {
     );
   });
 
-  it("keeps module hallucination guardrails and Post-PPP semantics", () => {
+  it("keeps module hallucination guardrails without the decommissioned Post-PPP semantics", () => {
     const combined = `${repoFile("src/components/AIAssistant.tsx")}\n${repoFile("api/ai-router.ts")}`;
 
     expect(combined).toContain("Do not invent missing module data");
     expect(combined).toContain("Do not invent missing module values");
-    expect(combined).toContain(
-      "Responsible/currentPppDoer is the current PPP execution doer"
-    );
-    expect(combined).toContain(
-      "Operations, AMD, and ARD are future ownership preference fields"
-    );
-    expect(combined).toContain(
-      "Recommended Future Doer is derived from consensus"
-    );
+    expect(combined).not.toContain("currentPppDoer");
+    expect(combined).not.toContain("Recommended Future Doer is derived from consensus");
   });
 
   it("does not touch protected routing entry points or static dashboard routing strings", () => {

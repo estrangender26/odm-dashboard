@@ -14,13 +14,16 @@ describe("SMP dummy-data seed hygiene", () => {
     expect(source).not.toContain("smp_families");
   });
 
-  it("seed data files contain no SMP records", () => {
-    const pmData = JSON.parse(readFileSync(join(root, "db/seed-pm.json"), "utf8"));
-    const maintData = JSON.parse(readFileSync(join(root, "db/seed-maint.json"), "utf8"));
-    const all = [...(Array.isArray(pmData) ? pmData : []), ...(Array.isArray(maintData) ? maintData : [])];
-    for (const row of all) {
-      const text = JSON.stringify(row).toLowerCase();
-      expect(text).not.toMatch(/smp|standard maintenance procedure|system maintenance plan/);
-    }
+  it("seeds no Maintenance Planning task or equipment data", () => {
+    // The Maintenance Planning (Post-PPP) seed payload (db/seed-pm.json,
+    // db/seed-maint.json) was removed with that module, so no seed path can
+    // reintroduce maintenance task rows.
+    const source = readFileSync(join(root, "api/seed-router.ts"), "utf8");
+    const schemaImports = source.match(/import \{([^}]*)\} from "@db\/schema";/)?.[1] ?? "";
+
+    expect(source).not.toContain("seed-pm.json");
+    expect(source).not.toContain("seed-maint.json");
+    expect(schemaImports).toContain("governanceFacilities");
+    expect(schemaImports.trim()).toBe("governanceFacilities");
   });
 });

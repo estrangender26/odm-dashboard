@@ -4,22 +4,6 @@ import AIAssistant from "@/components/AIAssistant";
 
 const DASHBOARDS = [
   {
-    icon: "📋",
-    bg: "#F0F4FF",
-    title: "Maintenance Planning (Post-PPP)",
-    route: "/equipment",
-    desc: "Manage maintenance task schedules across facilities. Plan when each maintenance activity (Operations, AMD, ARD) should occur.",
-    steps: [
-      "Filter by Equipment Type, Frequency, or Personnel.",
-      "Expand/Collapse equipment groups to show/hide tasks.",
-      "Select tasks with checkboxes or use Select All.",
-      "Edit dates by clicking Edit, then pick from calendar dropdowns.",
-      "Export: select tasks and click Export, or export all.",
-      "Import: upload a CSV or Excel file. Blank cells won't overwrite existing data.",
-      "Ask AI: click the floating AI button for insights on coverage, overloads, and anomalies.",
-    ],
-  },
-  {
     icon: "📅",
     bg: "#ECFDF5",
     title: "ODM Primavera Lite",
