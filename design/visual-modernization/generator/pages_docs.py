@@ -87,7 +87,8 @@ def smp_body():
         '    <div class="odm-card odm-split-pane">\n'
         '      <div class="odm-pane-toolbar">\n'
         '        <span class="odm-search odm-grow">' + svg("search") +
-        '<input class="odm-input odm-input--search" value="pump" ></span>\n'
+        '<input class="odm-input odm-input--search" value="pump" '
+        'placeholder="Search reference no., title, SMP ID, family, asset, equipment, facility..."></span>\n'
         '        <button class="odm-btn odm-btn--icon odm-btn--sm" title="Clear search">' + svg("x") + '</button>\n'
         '      </div>\n'
         '      <div class="odm-pane-filters">\n'
@@ -170,6 +171,14 @@ def smp_body():
         '<span class="odm-badge odm-badge--neutral">Monthly</span></div>'
         '<div class="odm-taskcard-meta"><span><b>Failure mode:</b> Seal wear</span>'
         '<span><b>Responsibility:</b> AMD In-house</span></div></div></div>'
+        '<div class="odm-proc-block"><span class="odm-proc-h">Technician Tasks &mdash; Condition-Based Maintenance</span>'
+        '<div class="odm-taskcard"><div class="odm-taskcard-head">Trend vibration signature'
+        '<span class="odm-badge odm-badge--neutral">Weekly</span></div>'
+        '<div class="odm-taskcard-meta"><span><b>Tools &amp; materials:</b> Vibrometer</span>'
+        '<span><b>Field capture data:</b> <code>{"axis":"H","rms":"mm/s"}</code></span></div></div></div>'
+        '<div class="odm-proc-block"><span class="odm-proc-h odm-proc-h--alert">Escalation Criteria</span>'
+        '<div class="odm-escalation"><span class="odm-strong">Check bearing temperature &middot; Daily</span>'
+        '<span class="odm-escalation-line">' + svg("triangle-alert") + 'Above 90&deg;C</span></div></div>'
         '</div>\n'
 
         '          <h3 class="odm-dsection">Revision History</h3>\n'
@@ -227,8 +236,7 @@ def tree_row(name, folders, docs, level, selected=False, expanded=False, is_file
 
 def manuals_body():
     tree = (
-        tree_row("O&M Manuals Library", 0, 0, 0, expanded=True)
-        + tree_row("Aglipay STP", 2, 46, 1, expanded=True)
+        tree_row("Aglipay STP", 2, 46, 1, expanded=True)
         + tree_row("O&M Manual — Aglipay STP (2024).pdf", 0, 0, 2, is_file=True, rev="Rev. 2")
         + tree_row("Blower Maintenance Annex.xlsx", 0, 0, 2, is_file=True)
         + tree_row("HTT STP", 3, 64, 1)
@@ -266,7 +274,15 @@ def manuals_body():
         '<button class="odm-btn odm-btn--sm odm-btn--primary">' + svg("upload") + 'Upload</button>'
         '<button class="odm-btn odm-btn--sm">Expand</button>'
         '<button class="odm-btn odm-btn--sm">Collapse</button></div>\n'
-        '      <div class="odm-tree">' + tree + '</div>\n'
+        '      <div class="odm-pane-actions">'
+        '<button class="odm-btn odm-btn--sm">' + svg("folder-plus") + 'New Subfolder</button>'
+        '<button class="odm-btn odm-btn--sm">' + svg("pencil") + 'Rename</button>'
+        '<button class="odm-btn odm-btn--sm odm-btn--danger">' + svg("trash-2") + 'Delete</button>'
+        '<button class="odm-btn odm-btn--sm">' + svg("download") + 'Download</button>'
+        '</div>\n'
+        '      <div class="odm-breadcrumb"><span>Treatment</span>'
+        '<span class="odm-breadcrumb-sep">/</span><span>Pumping Station</span></div>\n'
+        '      <div class="odm-tree odm-tree--host">' + tree + menu + '</div>\n'
         '      <div class="odm-pane-foot"><span class="odm-faint">Right-click folders or files for more options.</span></div>\n'
         '    </div>\n'
 
@@ -289,9 +305,7 @@ def manuals_body():
         '<div class="odm-viewer-line" style="width:80%%"></div>'
         '<div class="odm-viewer-line" style="width:44%%"></div>'
         '</div></div>\n'
-        '      <div class="odm-pane-foot odm-row odm-row--between">'
-        '<span class="odm-faint">Treatment / Pump Station Operating Manual.pdf</span>'
-        '<span class="odm-badge odm-badge--neutral">Rev. 0</span></div>\n'
+
         '    </div>\n'
         '  </div>\n'
         '</main>\n'

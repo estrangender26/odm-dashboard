@@ -310,3 +310,19 @@
 .odm-review { display: flex; flex-direction: column; gap: 9px; margin-top: 10px; }
 .odm-review li { font-size: 12.5px; color: var(--odm-text-muted); line-height: 1.55; }
 .odm-review b { color: var(--odm-text-strong); font-weight: 700; margin-right: 4px; }
+
+/* ── SMP procedure-data extras ─────────────────────────────────────────── */
+.odm-proc-h--alert { color: var(--odm-warning); }
+.odm-escalation { border: 1px solid var(--odm-warning-border); background: var(--odm-warning-bg);
+  border-radius: var(--odm-r-sm); padding: 9px 11px; display: flex; flex-direction: column; gap: 3px; }
+.odm-escalation .odm-strong { font-size: 12.5px; }
+.odm-escalation-line { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #92400E; }
+.odm-escalation-line svg { width: 13px; height: 13px; }
+
+/* ── O&M Manuals: breadcrumb + overlaid context menu ───────────────────── */
+.odm-breadcrumb { display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 7px 11px; font-size: 11px; color: var(--odm-text-muted); border-bottom: 1px solid var(--odm-border-soft); }
+.odm-breadcrumb span:first-child, .odm-breadcrumb span:last-child { font-weight: 500; color: var(--odm-text); }
+.odm-breadcrumb-sep { color: var(--odm-text-faint); margin: 0 2px; }
+.odm-tree--host { position: relative; }
+.odm-contextmenu { position: absolute; left: 178px; top: 152px; z-index: 10; }
