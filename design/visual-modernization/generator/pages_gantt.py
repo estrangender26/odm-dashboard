@@ -141,10 +141,19 @@ def gantt_body():
         '<span class="odm-gantt-legend-item"><i style="background:#059669;border-radius:999px"></i>Open actual</span>',
         '<span class="odm-gantt-legend-item"><i style="background:rgba(255,255,255,.55);border:1px solid #CBD5E1"></i>Shaded = % complete</span>',
         '<span class="odm-gantt-legend-item"><i style="background:#FCD34D"></i>Unresolved progress</span>',
+        '<span class="odm-gantt-legend-item"><i style="background:#CBD5E1;opacity:.6"></i>Stale &mdash; re-run schedule</span>',
     ])
 
     return (
-        module_header("ODM Primavera Lite Online", "Link-based project scheduling") +
+        '<header class="odm-hdr">\n  <div class="odm-hdr-in">\n'
+        '    <a class="odm-brand" href="home.html" title="Return to Program Oversight Center">\n'
+        '      <span class="odm-brand-mark">ODM</span>\n'
+        '      <span><h1>Pump Station 2 Upgrade</h1><span>Primavera Lite</span></span>\n'
+        '    </a>\n'
+        '    <div class="odm-hdr-actions odm-hdr-actions--meta">'
+        '<span class="odm-hdr-meta">Role: Admin</span>'
+        '<span class="odm-hdr-meta">Revision: 7</span></div>\n'
+        '  </div>\n</header>\n' 
         '<div class="odm-subbar"><div class="odm-subbar-in">\n'
         '  <span class="odm-field odm-field--inline"><label class="odm-label">DATA DATE</label>'
         '<input class="odm-input" value="2026-05-18" style="width:140px"></span>\n'
@@ -159,7 +168,7 @@ def gantt_body():
         '  <div class="odm-card">\n'
         '    <div class="odm-card-head">'
         '      <span class="odm-card-title">Project Overview</span>'
-        '      <span class="odm-faint" style="font-size:11.5px">Role: Admin | Revision: 7 | Last Scheduled: 2026-05-18 09:14</span>'
+        '      <span class="odm-cardmeta">Role: Admin | Revision: 7 | Last Scheduled: 2026-05-18 09:14</span>'
         '    </div>\n'
         '    <div class="odm-card-body">\n'
 
@@ -176,8 +185,8 @@ def gantt_body():
 
         '      <div class="odm-section-head odm-mt-4"><h3 class="odm-section-title">Timeline</h3>'
         '<span class="odm-row odm-tabs" style="padding:2px">'
-        '<button class="odm-tab">day</button><button class="odm-tab">week</button>'
-        '<button class="odm-tab odm-tab--active">month</button><button class="odm-tab">quarter</button>'
+        '<button class="odm-tab">day</button><button class="odm-tab odm-tab--active">week</button>'
+        '<button class="odm-tab">month</button><button class="odm-tab">quarter</button>'
         '<button class="odm-tab">Fit Project</button></span></div>\n'
         '      <div class="odm-card odm-card--flush"><div class="odm-gantt-grid">'
         '<div class="odm-gantt-left"><div class="odm-gantt-lhead">WBS / Activity</div>' + left_rows + '</div>'
@@ -190,9 +199,33 @@ def gantt_body():
         '        <div class="odm-gantt-caption">Planned (solid) &middot; Scheduled/CPM (dashed) &middot; Actual &mdash; read-only</div>\n'
         '      </div>\n'
 
+        '      <div class="odm-section-head odm-mt-4"><h3 class="odm-section-title">Calendars</h3>'
+        '<button class="odm-btn odm-btn--sm">' + svg("plus") + 'Add Calendar</button></div>\n'
+        '      <div class="odm-grid-2">'
+        '<div class="odm-cal-card"><div class="odm-row odm-row--between">'
+        '<span class="odm-strong">5-Day Work Week</span>'
+        '<span class="odm-badge odm-badge--neutral">Default</span></div>'
+        '<div class="odm-cal-days">Mon, Tue, Wed, Thu, Fri</div>'
+        '<div class="odm-cal-usage">12 active activities</div>'
+        '<div class="odm-cal-exc">Exceptions</div>'
+        '<div class="odm-cal-exc-row">2026-05-01 &middot; Non-working &middot; Labor Day</div></div>'
+        '<div class="odm-cal-card"><div class="odm-row odm-row--between">'
+        '<span class="odm-strong">6-Day Work Week</span>'
+        '<span class="odm-row"><button class="odm-btn odm-btn--sm">Edit</button>'
+        '<button class="odm-btn odm-btn--sm">Set as Default</button></span></div>'
+        '<div class="odm-cal-days">Mon, Tue, Wed, Thu, Fri, Sat</div>'
+        '<div class="odm-cal-usage">3 active activities</div>'
+        '<div class="odm-cal-exc">Exceptions</div>'
+        '<div class="odm-cal-exc-row odm-faint">No exceptions.</div></div>'
+        '</div>\n'
+
+        '      <div class="odm-row odm-mt-4"><button class="odm-btn odm-btn--danger">'
+        + svg("layers") + 'Archive Project</button></div>\n'
+
         '      <div class="odm-section-head odm-mt-4"><h3 class="odm-section-title">Activities</h3>'
-        '<span class="odm-row"><span class="odm-badge odm-badge--neutral">7 activities</span>'
-        '<button class="odm-btn odm-btn--sm">Show archived</button>'
+        '<span class="odm-row"><span class="odm-faint" style="font-size:11.5px">7 activities</span>'
+        '<span class="odm-row" style="gap:5px"><input type="checkbox" class="odm-checkbox">'
+        '<span class="odm-faint" style="font-size:11.5px">Show archived</span></span>'
         '<button class="odm-btn odm-btn--sm odm-btn--primary">' + svg("plus") + 'Add Activity</button></span></div>\n'
         '      <div class="odm-card odm-card--flush"><div class="odm-table-wrap">'
         '<table class="odm-table odm-table--compact"><thead><tr>' + act_head + '</tr></thead>'
@@ -204,9 +237,16 @@ def gantt_body():
         '<table class="odm-table odm-table--compact"><thead><tr>' + dep_head + '</tr></thead>'
         '<tbody>' + dep_rows + '</tbody></table></div></div>\n'
 
-        '      <div class="odm-section-head odm-mt-4"><h3 class="odm-section-title">Baselines</h3>'
-        '<span class="odm-row"><span class="odm-badge odm-badge--neutral">Rev-B (52 activities)</span>'
-        '<button class="odm-btn odm-btn--sm">Capture Baseline</button></span></div>\n'
+        '      <div class="odm-section-head odm-mt-4"><h3 class="odm-section-title">Baselines</h3></div>\n'
+        '      <div class="odm-caption">Capture new baseline (admin only)</div>\n'
+        '      <div class="odm-row odm-mb-2"><input class="odm-input" placeholder="Baseline name" style="max-width:220px">'
+        '<input class="odm-input" placeholder="Description (optional)" style="max-width:280px">'
+        '<button class="odm-btn odm-btn--primary">Capture Baseline</button></div>\n'
+        '      <div class="odm-caption">Select baseline</div>\n'
+        '      <div class="odm-row odm-mb-2"><span class="odm-badge odm-badge--info">Rev-B (52 activities)</span>'
+        '<span class="odm-badge odm-badge--neutral">Rev-A (48 activities)</span></div>\n'
+        '      <div class="odm-row odm-row--between odm-mb-2"><span class="odm-strong">Comparison: Rev-B</span>'
+        '<span class="odm-faint" style="font-size:11.5px">captured 2026-05-02, 08:41 AM</span></div>\n'
         '      <div class="odm-card odm-card--flush"><div class="odm-table-wrap">'
         '<table class="odm-table odm-table--compact"><thead><tr>' + bl_head + '</tr></thead>'
         '<tbody>' + bl_rows + '</tbody></table></div></div>\n'
