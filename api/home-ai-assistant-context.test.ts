@@ -22,7 +22,7 @@ describe("Dashboard Suite home AI assistant context", () => {
     expect(block).not.toContain('title="Maintenance Planning AI"');
   });
 
-  it("does not pass empty maintenance data or Maintenance Planning source metadata", () => {
+  it("does not pass empty maintenance data or decommissioned module source metadata", () => {
     const block = homeAssistantBlock();
 
     expect(block).not.toContain("data={[]}");
@@ -37,19 +37,18 @@ describe("Dashboard Suite home AI assistant context", () => {
 
     expect(block).toContain("What can this dashboard do?");
     expect(block).toContain("Which module should I open?");
-    expect(block).toContain("How do I use Maintenance Planning?");
+    expect(block).not.toContain("How do I use Maintenance Planning?");
     expect(block).not.toContain("Analyze PM compliance trends");
     expect(block).not.toContain("Identify high-risk equipment");
     expect(block).not.toContain("Review overdue work orders");
   });
 
   it("keeps module dashboard pages on their module-specific assistant contexts", () => {
-    const maintenancePage = readFileSync("src/pages/Dashboard.tsx", "utf8");
     const scorecardPage = readFileSync("src/pages/ScorecardDashboard.tsx", "utf8");
+    const smpPage = readFileSync("src/pages/SmpDashboard.tsx", "utf8");
 
-    expect(maintenancePage).toContain('contextType="maintenance"');
-    expect(maintenancePage).toContain('sourceModule: "Maintenance Planning"');
     expect(scorecardPage).toContain('contextType="scorecard"');
     expect(scorecardPage).toContain('sourceModule: "Monthly KPI Scorecard"');
+    expect(smpPage).toContain('contextType="smp"');
   });
 });

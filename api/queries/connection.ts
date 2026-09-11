@@ -21,23 +21,6 @@ function shouldRunMigrationsOnStartup(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-async function ensureTasksProcedureFamiliarityColumn(db: ReturnType<typeof drizzle<typeof schema>>): Promise<void> {
-  await db.execute(sql`ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "procedure_familiarity" text`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS "tasks_familiarity_idx" ON "tasks" ("procedure_familiarity")`);
-
-  const result = await db.execute(sql`
-    SELECT column_name
-    FROM information_schema.columns
-    WHERE table_schema = current_schema()
-      AND table_name = 'tasks'
-      AND column_name = 'procedure_familiarity'
-  `);
-  const rows = (result as any).rows ?? result;
-  if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error("Startup migration verification failed: tasks.procedure_familiarity is missing");
-  }
-}
-
 async function ensureMonthlyKpiNotesColumn(db: ReturnType<typeof drizzle<typeof schema>>): Promise<void> {
   await db.execute(sql`ALTER TABLE IF EXISTS "monthly_kpi_records" ADD COLUMN IF NOT EXISTS "notes" text`);
 }
@@ -148,12 +131,11 @@ export function getDb() {
     _dbReady = (async () => {
       console.log("[db] migration start", { migrationsPath });
       await migrate(_db!, { migrationsFolder: migrationsPath });
-      await ensureTasksProcedureFamiliarityColumn(_db!);
       await ensureMonthlyKpiNotesColumn(_db!);
       await ensureMonthlyKpiSituationColumn(_db!);
       await ensureMonthlyKpiRawFields(_db!);
       await _db!.execute(sql`SELECT 1`);
-      console.log("[db] migration finish; verified tasks.procedure_familiarity");
+      console.log("[db] migration finish; verified monthly KPI schema");
     })().catch((err: any) => {
       console.error("[db] migration error", { message: err?.message ?? String(err), stack: err?.stack });
       console.error("[DB] Migration/startup verification error:", err.message);

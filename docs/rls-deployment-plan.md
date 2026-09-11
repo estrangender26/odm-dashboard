@@ -1,5 +1,14 @@
 # RLS Deployment Plan
 
+> **Status: historical planning document.** The phased rollout described here was
+> executed through `db/migrations/0024_phase1_rls_pilot.sql` and
+> `db/migrations/0028_enable_rls_remaining_tables.sql`, which enable RLS and
+> revoke `anon`/`authenticated` privileges without creating policies. The
+> Phase 2 tables `equipment` and `tasks` were subsequently decommissioned along
+> with the Maintenance Planning (Post-PPP) module by
+> `db/migrations/0039_decommission_maintenance_planning.sql` and no longer
+> exist, so the Phase 2 steps that reference them are no longer applicable.
+
 This plan intentionally does **not** apply any database change automatically. Run one phase at a time during a maintenance window, validate it, and only then proceed to the next phase.
 
 ## Baseline assumptions
@@ -356,7 +365,8 @@ COMMIT;
 
 ### Modules affected
 
-- Operator Driven Maintenance and post-planning task modules.
+- Operator Driven Maintenance (the post-planning task tables this bullet also
+  covered were decommissioned — see the status note at the top of this document).
 - Existing Facilities Maintenance module.
 - Gantt planner task, dependency, reorder, seed/reset, and saved-project modules.
 

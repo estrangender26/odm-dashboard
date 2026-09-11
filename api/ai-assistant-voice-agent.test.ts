@@ -69,7 +69,7 @@ describe("AI assistant voice agent helpers", () => {
     expect(source).toContain("GENERAL_HELP_PROMPTS");
     expect(source).toContain("What can this dashboard do?");
     expect(source).toContain("Which module should I open?");
-    expect(source).toContain("How do I use Maintenance Planning?");
+    expect(source).not.toContain("How do I use Maintenance Planning?");
     expect(source).toMatch(/hasModuleData\s*\?/);
   });
 
@@ -80,7 +80,7 @@ describe("AI assistant voice agent helpers", () => {
 
     expect(generalPromptsBlock).toContain("What can this dashboard do?");
     expect(generalPromptsBlock).toContain("Which module should I open?");
-    expect(generalPromptsBlock).toContain("How do I use Maintenance Planning?");
+    expect(generalPromptsBlock).not.toContain("How do I use Maintenance Planning?");
     expect(generalPromptsBlock).not.toContain("Analyze PM compliance trends");
     expect(generalPromptsBlock).not.toContain("Identify high-risk equipment");
     expect(generalPromptsBlock).not.toContain(

@@ -14,12 +14,14 @@ describe("AI assistant grounding/system behavior", () => {
     expect(combined).not.toContain("live web lookup is not enabled");
   });
 
-  it("preserves Post-PPP ownership semantics in assistant grounding", () => {
+  it("no longer carries the decommissioned Maintenance Planning grounding model", () => {
+    // The Post-PPP ownership model was supplied only by the decommissioned
+    // Maintenance Planning (Post-PPP) module, so its grounding copy is gone.
     const assistantSource = readFileSync("src/components/AIAssistant.tsx", "utf8");
     const routerSource = readFileSync("api/ai-router.ts", "utf8");
 
-    expect(assistantSource).toContain("Responsible/currentPppDoer means Current PPP execution doer");
-    expect(assistantSource).toContain("Operations, AMD, and ARD are preference fields only");
-    expect(routerSource).toContain("Recommended Future Doer is derived from consensus");
+    expect(assistantSource).not.toContain("currentPppDoer");
+    expect(routerSource).not.toContain("currentPppDoer");
+    expect(routerSource).not.toContain("Recommended Future Doer is derived from consensus");
   });
 });

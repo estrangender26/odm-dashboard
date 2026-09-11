@@ -27,29 +27,6 @@ export const users = pgTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-export const equipment = pgTable("equipment", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  initials: varchar("initials", { length: 10 }).notNull(),
-}, (table) => [index("equipment_name_idx").on(table.name)]);
-
-export const tasks = pgTable("tasks", {
-  id: serial("id").primaryKey(),
-  equipmentId: bigint("equipment_id", { mode: "number" }).notNull(),
-  taskList: text("task_list").notNull(),
-  frequency: varchar("frequency", { length: 100 }).notNull(),
-  responsiblePersonnel: varchar("responsible_personnel", { length: 100 }),
-  operations: varchar("operations", { length: 100 }),
-  amd: varchar("amd", { length: 100 }),
-  ard: varchar("ard", { length: 100 }),
-  procedureFamiliarity: text("procedure_familiarity"),
-  dataset: varchar("dataset", { length: 20 }).notNull(),
-}, (table) => [
-  index("tasks_equipment_idx").on(table.equipmentId),
-  index("tasks_dataset_idx").on(table.dataset),
-  index("tasks_familiarity_idx").on(table.procedureFamiliarity),
-]);
-
 export const monthlyKpiRecords = pgTable("monthly_kpi_records", {
   id: serial("id").primaryKey(),
   businessUnit: varchar("business_unit", { length: 100 }).notNull(),

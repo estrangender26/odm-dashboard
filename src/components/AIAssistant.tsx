@@ -28,8 +28,7 @@ export type DashboardContext =
   | "manuals"
   | "scorecard"
   | "governance"
-  | "help"
-  | "postPlanningInsights";
+  | "help";
 
 interface AIAssistantProps {
   contextType: DashboardContext;
@@ -57,12 +56,13 @@ const VOICE_CAPTURE_TIMEOUT_MS = 10000;
 const GENERAL_HELP_PROMPTS = [
   "What can this dashboard do?",
   "Which module should I open?",
-  "How do I use Maintenance Planning?",
 ];
 
 const DASHBOARD_GROUNDING_INSTRUCTION = `Use dashboard data first and active module data first for module-specific questions. General knowledge questions may be answered normally. Current, live, recent, or external questions may use server-side web search when available, except simple time/date questions must use dashboard/browser runtime time instead of web search. If module data is empty or unavailable for a module-specific question, say exactly "Module data is not loaded. Open the relevant dashboard module first so I can analyze its data." Do not invent missing module data, task counts, KPI values, equipment names, ownership decisions, SMP coverage, document counts, schedule delays, or file/folder counts. Web search must not override dashboard/module records.`;
 
 const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
+  // Generic maintenance-analysis fallback. The Help page is the current consumer
+  // of this context label; it always passes its own quickQuestions.
   maintenance: [
     "Analyze PM compliance trends",
     "Identify high-risk equipment",
@@ -105,14 +105,6 @@ const CONTEXT_PROMPTS: Record<DashboardContext, string[]> = {
     "Check document status",
     "Identify governance risks",
     "Suggest policy improvements",
-  ],
-  postPlanningInsights: [
-    "Show contractor-to-operator transition",
-    "Show contractor-to-AMD transition",
-    "Show outsourced SLA workload",
-    "Show operator training backlog",
-    "Show AMD training backlog",
-    "Show SMP development priorities",
   ],
   help: [
     "Explain dashboard features",
@@ -190,7 +182,7 @@ function isPureWebCurrentQuestion(message: string): boolean {
   const pureWebCurrentTerms =
     /\b(current|currently|live|latest|today|tonight|tomorrow|yesterday|this week|this month|this year|now|right now|recent|newest|breaking|news|price|prices|market|stock|ranking|rankings|richest|wealthiest|billionaire|billionaires|net worth|ceo|chief executive|weather|forecast|exchange rate|inflation|interest rate|law|laws|regulation|regulations|standard|standards|version|release|model info|product info|availability)\b/i;
   const moduleAnchorTerms =
-    /\b(this|these|active|dashboard|module|loaded|my|our|planner|records|tasks|equipment|work orders?|maintenance|inspection|smp|post-ppp|ppp|ownership|responsible)\b/i;
+    /\b(this|these|active|dashboard|module|loaded|my|our|planner|records|tasks|equipment|work orders?|maintenance|inspection|smp|ppp|ownership|responsible)\b/i;
 
   return pureWebCurrentTerms.test(message) && !moduleAnchorTerms.test(message);
 }
@@ -213,7 +205,7 @@ function isDataAnalysisQuestion(message: string): boolean {
       message
     );
   const moduleAnchor =
-    /\b(this|these|active|dashboard|module|loaded|my|our|planner|current|records|tasks|equipment|work orders?|maintenance|inspection|smp|post-ppp|ppp|ownership|responsible)\b/i.test(
+    /\b(this|these|active|dashboard|module|loaded|my|our|planner|current|records|tasks|equipment|work orders?|maintenance|inspection|smp|ppp|ownership|responsible)\b/i.test(
       message
     );
   if (dashboardStatisticIntent && moduleAnchor) return true;
@@ -331,115 +323,7 @@ function buildDataContext(
     const first = data[0];
     const fields = Object.keys(first || {});
 
-    // --- MAINTENANCE PLANNING dashboard (trpc.tasks.list task data) ---
     if (
-      contextType === "maintenance" &&
-      (fields.includes("taskList") ||
-        fields.includes("responsiblePersonnel") ||
-        fields.includes("currentPppDoer"))
-    ) {
-      const countBy = (picker: (r: any) => string | null | undefined) => {
-        const map: Record<string, number> = {};
-        data.forEach((r: any) => {
-          const key = (picker(r) || "Blank").trim() || "Blank";
-          map[key] = (map[key] || 0) + 1;
-        });
-        return Object.entries(map).sort(([, a], [, b]) => b - a);
-      };
-      const getCurrentPppDoer = (r: any) =>
-        r.currentPppDoer ||
-        r.Responsible ||
-        r.responsible ||
-        r.responsiblePersonnel;
-      ctx += `=== MAINTENANCE PLANNING TASK DATA (trpc.tasks.list) ===\n`;
-      ctx += `Total Tasks: ${data.length}\n`;
-      ctx += `Ownership Rule: Responsible/currentPppDoer/responsiblePersonnel is the current PPP execution doer only. Operations, AMD, and ARD are future ownership preference fields and must not be treated as the current doer.\n`;
-      ctx += `Current PPP Doer (top):\n`;
-      countBy(getCurrentPppDoer)
-        .slice(0, 10)
-        .forEach(([name, c]) => {
-          ctx += `- ${name}: ${c} tasks\n`;
-        });
-      ctx += `Frequencies:\n`;
-      countBy(r => r.frequency || r.Frequency)
-        .slice(0, 10)
-        .forEach(([name, c]) => {
-          ctx += `- ${name}: ${c} tasks\n`;
-        });
-      ctx += `Equipment (top):\n`;
-      countBy(
-        r => r.equipmentName || r.equipment?.name || r.Equipment || r.equipment
-      )
-        .slice(0, 10)
-        .forEach(([name, c]) => {
-          ctx += `- ${name}: ${c} tasks\n`;
-        });
-      ctx += `Future preference fields (do not confuse with current PPP doer):\n`;
-      ["operations", "amd", "ard"].forEach(field => {
-        ctx += `- ${field.toUpperCase()}: ${
-          countBy(r => r[field])
-            .slice(0, 6)
-            .map(([name, c]) => `${name}=${c}`)
-            .join(", ") || "No values loaded"
-        }\n`;
-      });
-      ctx += `Task Records (first ${Math.min(15, data.length)}):\n`;
-      data.slice(0, 15).forEach((r: any, i: number) => {
-        ctx += `${i + 1}. equipment=${r.equipmentName || r.equipment?.name || "Unknown"} | task=${r.taskList || "Untitled"} | frequency=${r.frequency || "Blank"} | currentPppDoer=${getCurrentPppDoer(r) || "Blank"} | operations=${r.operations || "Blank"} | amd=${r.amd || "Blank"} | ard=${r.ard || "Blank"}\n`;
-      });
-    }
-
-    // --- MAINTENANCE / EFM dashboard ---
-    else if (contextType === "maintenance" && fields.includes("Equipment")) {
-      // Status breakdown
-      const statusMap: Record<string, number> = {};
-      const plantMap: Record<string, { total: number; overdue: number }> = {};
-      const overdueItems: string[] = [];
-      let pmCount = 0,
-        cmCount = 0;
-
-      data.forEach((r: any) => {
-        const st = r.Status || r.status || "Unknown";
-        statusMap[st] = (statusMap[st] || 0) + 1;
-
-        const plant = r.Plant || r.Facility || "Unknown";
-        if (!plantMap[plant]) plantMap[plant] = { total: 0, overdue: 0 };
-        plantMap[plant].total++;
-
-        if (st.toLowerCase().includes("overdue")) {
-          plantMap[plant].overdue++;
-          overdueItems.push(`${r.Equipment || r.equipment || "?"} (${plant})`);
-        }
-        if ((r.Type || "").toLowerCase().includes("pm")) pmCount++;
-        if ((r.Type || "").toLowerCase().includes("cm")) cmCount++;
-      });
-
-      ctx += `=== STATUS BREAKDOWN ===\n`;
-      Object.entries(statusMap)
-        .sort(([, a], [, b]) => (b as number) - (a as number))
-        .forEach(([s, c]) => {
-          ctx += `- ${s}: ${c}\n`;
-        });
-
-      ctx += `\n=== PLANT / FACILITY BREAKDOWN ===\n`;
-      Object.entries(plantMap)
-        .sort(([, a]: any, [, b]: any) => b.overdue - a.overdue)
-        .forEach(([p, d]: any) => {
-          ctx += `- ${p}: ${d.total} items, ${d.overdue} overdue\n`;
-        });
-
-      if (overdueItems.length > 0) {
-        ctx += `\n=== OVERDUE ITEMS (${overdueItems.length}) ===\n`;
-        overdueItems.slice(0, 15).forEach(item => {
-          ctx += `- ${item}\n`;
-        });
-      }
-
-      ctx += `\nWork Order Types: ${pmCount} PM, ${cmCount} CM\n`;
-    }
-
-    // --- GANTT dashboard ---
-    else if (
       contextType === "gantt" &&
       (fields.includes("text") || fields.includes("name"))
     ) {
@@ -716,71 +600,6 @@ function buildDataContext(
       if (normalizedTasks.length > MAX_GANTT_TASK_ROWS) {
         ctx += `... ${normalizedTasks.length - MAX_GANTT_TASK_ROWS} more tasks not shown.\n`;
       }
-    }
-
-    // --- POST-PLANNING INSIGHTS dashboard ---
-    else if (contextType === "postPlanningInsights") {
-      const count = (field: string, value: string) =>
-        data.filter(
-          (r: any) => `${r[field] || ""}`.toLowerCase() === value.toLowerCase()
-        ).length;
-      const groupCount = (
-        field: string,
-        predicate: (r: any) => boolean = () => true
-      ) => {
-        const map: Record<string, number> = {};
-        data.filter(predicate).forEach((r: any) => {
-          const key = r[field] || "Blank";
-          map[key] = (map[key] || 0) + 1;
-        });
-        return Object.entries(map).sort(([, a], [, b]) => b - a);
-      };
-      const loadByFutureDoer: Record<string, number> = {};
-      data.forEach((r: any) => {
-        const future = r.futureDoer || "Blank";
-        loadByFutureDoer[future] =
-          (loadByFutureDoer[future] || 0) + Number(r.monthlyResourceLoad || 0);
-      });
-
-      ctx += `=== POST-PLANNING OWNERSHIP MODEL ===\n`;
-      ctx += `Responsible/currentPppDoer means Current PPP execution doer.\n`;
-      ctx += `Operations, AMD, and ARD are preference fields only; use derived futureDoer for Future Post-PPP execution.\n`;
-      ctx += `Future doer categories are only Operator, AMD In-house, and Outsourced SLA.\n`;
-      ctx += `Use this context to answer current PPP execution, future post-PPP execution, transition workload, training backlog, SMP backlog, and resource requirements.\n`;
-
-      ctx += `\nFuture Post-PPP Execution Model:\n`;
-      ["Operator", "AMD In-house", "Outsourced SLA"].forEach(name => {
-        ctx += `- ${name}: ${count("futureDoer", name)} tasks\n`;
-      });
-
-      ctx += `\nCurrent PPP Execution (top doers):\n`;
-      groupCount("currentPppDoer")
-        .slice(0, 10)
-        .forEach(([name, c]) => {
-          ctx += `- ${name}: ${c} tasks\n`;
-        });
-
-      ctx += `\nTransition Workload (Current PPP Doer -> Future Doer):\n`;
-      groupCount("transition")
-        .slice(0, 12)
-        .forEach(([name, c]) => {
-          ctx += `- ${name}: ${c} tasks\n`;
-        });
-
-      ctx += `\nTraining Backlog by Future Doer:\n`;
-      ["Operator", "AMD In-house", "Outsourced SLA"].forEach(name => {
-        ctx += `- ${name}: ${data.filter((r: any) => r.futureDoer === name && r.trainingBacklog === "Yes").length} tasks\n`;
-      });
-
-      ctx += `\nSMP Backlog by Future Doer:\n`;
-      ["Operator", "AMD In-house", "Outsourced SLA"].forEach(name => {
-        ctx += `- ${name}: ${data.filter((r: any) => r.futureDoer === name && r.smpBacklog === "Yes").length} tasks\n`;
-      });
-
-      ctx += `\nResource Requirements by Future Doer (monthly load units):\n`;
-      ["Operator", "AMD In-house", "Outsourced SLA"].forEach(name => {
-        ctx += `- ${name}: ${(loadByFutureDoer[name] || 0).toFixed(2)}\n`;
-      });
     }
 
     // --- GOVERNANCE dashboard ---

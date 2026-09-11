@@ -185,7 +185,24 @@ describe("Home hidden OWNER entry (5 clicks on the logo within a rolling 3s wind
   it("normal public dashboard content remains intact", () => {
     renderHome();
     expect(screen.getByText("Dashboard Suite")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Post-Planning Insights/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Projects without PPP/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Monitoring/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Scorecard/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open SMP Library/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open O&M Library/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Primavera Lite/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Presentation Center/ })).toBeInTheDocument();
+  });
+
+  it("no longer exposes the decommissioned module cards or their routes", () => {
+    renderHome();
+    expect(screen.queryByText(/Post-Planning Insights/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Maintenance Planning/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Open Insights/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Open Task Table/)).not.toBeInTheDocument();
+    const hrefs = Array.from(document.querySelectorAll("a[href]")).map(a =>
+      a.getAttribute("href")
+    );
+    expect(hrefs).not.toContain("/post-planning-insights");
+    expect(hrefs).not.toContain("/equipment");
   });
 });

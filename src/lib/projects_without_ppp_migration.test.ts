@@ -27,14 +27,15 @@ describe("0031 Projects without PPP migration (content + journal)", () => {
     expect(entry!.when).toBeGreaterThan(1791312000013);
   });
 
-  it("0038 monthly_kpi_situation is registered as the final journal entry after 0037", () => {
+  it("registers the newest migration as the final journal entry after 0037", () => {
     const entries = journal.entries;
     const last = entries[entries.length - 1];
-    expect(last.tag).toBe("0038_monthly_kpi_situation");
+    expect(last.tag).toBe("0039_decommission_maintenance_planning");
     expect(last.idx).toBe(entries.length - 1);
     expect(last.when).toBeGreaterThan(entry!.when);
     const previous = entries[entries.length - 2];
-    expect(previous.tag).toBe("0037_primavera_baseline_rls");
+    expect(previous.tag).toBe("0038_monthly_kpi_situation");
+    expect(entries[entries.length - 3].tag).toBe("0037_primavera_baseline_rls");
   });
 
   it("journal entries are ordered by idx and non-decreasing when", () => {

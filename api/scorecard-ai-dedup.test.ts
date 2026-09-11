@@ -5,8 +5,6 @@ import { describe, expect, it } from "vitest";
 const repoFile = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 const auditedModulePages = [
-  "src/pages/Dashboard.tsx",
-  "src/pages/PostPlanningInsights.tsx",
   "src/pages/ScorecardDashboard.tsx",
   "src/pages/OmManualsLibrary.tsx",
   "src/pages/SmpDashboard.tsx",

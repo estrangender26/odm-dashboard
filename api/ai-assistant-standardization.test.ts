@@ -6,8 +6,6 @@ const repoFile = (path: string) => readFileSync(resolve(process.cwd(), path), "u
 
 const auditedAssistantPages = [
   "src/pages/Home.tsx",
-  "src/pages/Dashboard.tsx",
-  "src/pages/PostPlanningInsights.tsx",
   "src/pages/ScorecardDashboard.tsx",
   "src/pages/OmManualsLibrary.tsx",
   "src/pages/SmpDashboard.tsx",
@@ -74,13 +72,10 @@ describe("AI assistant visual standardization", () => {
     }
   });
 
-  it("does not retain the old blue Maintenance AI Expert implementation", () => {
-    const source = repoFile("src/components/AiChatPanel.tsx");
-
-    expect(source).toContain("<AIAssistant");
-    expect(source).not.toContain("Maintenance AI Expert");
-    expect(source).not.toContain("Senior Reliability Advisor");
-    expect(source).not.toContain("#005BAC");
+  it("does not retain the decommissioned maintenance AI panel implementation", () => {
+    // The legacy blue "Maintenance AI Expert" home panel was removed together
+    // with the Maintenance Planning (Post-PPP) module.
+    expect(() => repoFile("src/components/AiChatPanel.tsx")).toThrow();
   });
 
   it("does not render the legacy scorecard iframe AI widget", () => {

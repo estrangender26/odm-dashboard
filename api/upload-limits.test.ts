@@ -80,7 +80,7 @@ describe("route-specific request body limits", () => {
 
   it.each([
     "/api/presentation-files/upload",
-    "/api/trpc/tasks.import",
+    "/api/trpc/smp.list",
     "/api/trpc/governance.uploads",
   ])("keeps unrelated API %s at 50 MB", (path) => {
     expect(isLargeUploadRequestPath(path)).toBe(false);
