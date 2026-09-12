@@ -204,7 +204,7 @@ export default function Home() {
           <Link to="/gantt" className={navCardClassName} style={navCardStyle}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
               <span style={iconTile("navy")}><CalendarDays size={19} strokeWidth={2} aria-hidden="true" /></span>
-              <h3 style={cardTitleStyle}>ODM Primavera Lite</h3>
+              <h3 style={cardTitleStyle}>Primavera Lite</h3>
             </div>
             <p style={cardDescStyle}>
               ODM Primavera Lite Online — link-based project scheduling. Create WBS, activities, dependencies, and schedules without an account.
