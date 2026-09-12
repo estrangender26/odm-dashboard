@@ -1,3 +1,8 @@
+import type { ReactNode } from "react";
+import {
+  AlertTriangle, CircleCheck, Download, Eye, FileSpreadsheet, FileText,
+  Folder, FolderOpen, FolderPlus, Globe, Info, Move, Pencil, Search, Trash2, Upload, X,
+} from "lucide-react";
 import { memo, useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
@@ -57,7 +62,7 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
   };
   return (
     <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
-      <span>{type === "error" ? "⚠️" : type === "success" ? "✅" : "ℹ️"}</span>
+      <span aria-hidden="true">{type === "error" ? <AlertTriangle size={15} /> : type === "success" ? <CircleCheck size={15} /> : <Info size={15} />}</span>
       <span className="flex-1">{message}</span>
       {onDismiss && <button type="button" onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
     </div>
@@ -257,7 +262,7 @@ function updateFolderContents(
 
 function ContextMenu({ x, y, items, onClose }: {
   x: number; y: number;
-  items: { label: string; icon: string; onClick: () => void; danger?: boolean }[];
+  items: { label: string; icon: ReactNode; onClick: () => void; danger?: boolean }[];
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -274,7 +279,7 @@ function ContextMenu({ x, y, items, onClose }: {
       {items.map((item, i) => (
         <button key={i} type="button" onClick={() => { item.onClick(); onClose(); }}
           className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2 ${item.danger ? "text-red-600" : "text-gray-700"}`}>
-          <span>{item.icon}</span> {item.label}
+          <span className="text-odm-muted shrink-0 flex items-center">{item.icon}</span> {item.label}
         </button>
       ))}
     </div>
@@ -331,7 +336,7 @@ const TreeFolderItem = memo(function TreeFolderItem({
         >
           {isLoadingChildren ? <span className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin" /> : hasContent ? <Chevron expanded={expanded} /> : <span className="w-2" />}
         </button>
-        <span className="text-sm flex-shrink-0">{expanded ? "📂" : "📁"}</span>
+        <span className="flex-shrink-0" aria-hidden="true">{expanded ? <FolderOpen size={15} /> : <Folder size={15} />}</span>
         <span className={`text-xs font-semibold truncate flex-1 ${selectedFolderId === folder.id ? "text-blue-800" : "text-gray-700"}`}>{folder.name}</span>
         {(folder.childFolderCount > 0 || folder.fileCount > 0) && (
           <span className="text-[0.6rem] text-gray-400 flex-shrink-0 mr-1">
@@ -394,7 +399,7 @@ const TreeFolderItem = memo(function TreeFolderItem({
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenuFile(e, file, folder.id); }}
               >
                 <span className="w-4 flex-shrink-0" />
-                <span className="text-sm flex-shrink-0">{file.fileType?.includes("pdf") ? "📄" : "📃"}</span>
+                <span className="flex-shrink-0" aria-hidden="true">{file.fileType?.includes("pdf") ? <FileText size={15} /> : <FileSpreadsheet size={15} />}</span>
                 <span className={`text-xs truncate flex-1 min-w-0 ${isSelected ? "text-blue-800 font-semibold" : "text-gray-600"}`}>{file.title || file.fileName}</span>
                 {file.revision && <span className="text-[0.6rem] text-gray-400 bg-gray-100 px-1 rounded flex-shrink-0 mr-1">{file.revision}</span>}
                 {/* Download button */}
@@ -490,7 +495,7 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md text-gray-500 bg-white rounded-lg shadow p-6">
-          <div className="text-5xl mb-4">🌐</div>
+          <Globe className="mx-auto mb-4 text-odm-faint" size={48} aria-hidden="true" />
           <h3 className="text-lg font-semibold text-gray-700 mb-1">HTML Document</h3>
           <p className="text-sm mb-4 break-all" title={fileName}>{fileName}</p>
           <p className="text-xs text-gray-400 mb-4">Type: {fileType || "text/html"}</p>
@@ -518,12 +523,12 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md text-gray-400">
-          <div className="text-6xl mb-4">📄</div>
+          <FileText className="mx-auto mb-4 text-odm-faint" size={56} aria-hidden="true" />
           <h3 className="text-lg font-semibold text-gray-500 mb-2">No PDF Available</h3>
           <p className="text-sm">This document has no same-origin file data or secure preview URL attached.<br />Upload a PDF or check the file URL.</p>
           {onDelete && (
             <button type="button" onClick={onDelete} className="mt-4 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100">
-              🗑️ Delete File
+              <Trash2 size={13} className="inline align-[-2px] mr-1" aria-hidden="true" />Delete File
             </button>
           )}
         </div>
@@ -539,7 +544,7 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md text-gray-400">
-          <div className="text-5xl mb-4">⚠️</div>
+          <AlertTriangle className="mx-auto mb-4 text-odm-warning" size={48} aria-hidden="true" />
           <h3 className="text-lg font-semibold text-gray-600 mb-2">Cannot Preview PDF</h3>
           <p className="text-sm mb-4">Your browser cannot render this PDF inline.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
@@ -666,7 +671,7 @@ export default function OmManualsLibrary() {
   const [selectedFile, setSelectedFile] = useState<TreeFile | null>(null);
   const [banner, setBanner] = useState<{type: "error" | "success" | "info"; message: string} | null>(null);
   const [mobileView, setMobileView] = useState<"tree" | "detail">("tree");
-  const [contextMenu, setContextMenu] = useState<{x: number; y: number; items: {label: string; icon: string; onClick: () => void; danger?: boolean}[]} | null>(null);
+  const [contextMenu, setContextMenu] = useState<{x: number; y: number; items: {label: string; icon: ReactNode; onClick: () => void; danger?: boolean}[]} | null>(null);
   const [modal, setModal] = useState<{type: string; folderId?: number; fileId?: number} | null>(null);
   const [modalInput, setModalInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -963,10 +968,10 @@ export default function OmManualsLibrary() {
     setContextMenu({
       x: e.clientX, y: e.clientY,
       items: [
-        { label: "New Subfolder", icon: "📁", onClick: () => { setModal({ type: "createSubfolder", folderId: folder.id }); setModalInput(""); } },
-        { label: "Rename", icon: "✏️", onClick: () => { setModal({ type: "renameFolder", folderId: folder.id }); setModalInput(folder.name); } },
-        { label: "Move", icon: "📋", onClick: () => { setModal({ type: "moveFolder", folderId: folder.id }); } },
-        { label: "Delete", icon: "🗑️", onClick: () => { setModal({ type: "deleteFolder", folderId: folder.id }); }, danger: true },
+        { label: "New Subfolder", icon: <FolderPlus size={14} />, onClick: () => { setModal({ type: "createSubfolder", folderId: folder.id }); setModalInput(""); } },
+        { label: "Rename", icon: <Pencil size={14} />, onClick: () => { setModal({ type: "renameFolder", folderId: folder.id }); setModalInput(folder.name); } },
+        { label: "Move", icon: <Move size={14} />, onClick: () => { setModal({ type: "moveFolder", folderId: folder.id }); } },
+        { label: "Delete", icon: <Trash2 size={14} />, onClick: () => { setModal({ type: "deleteFolder", folderId: folder.id }); }, danger: true },
       ],
     });
   }, []);
@@ -976,11 +981,11 @@ export default function OmManualsLibrary() {
     setContextMenu({
       x: e.clientX, y: e.clientY,
       items: [
-        { label: "View", icon: "👁️", onClick: () => { onSelectFile(file); } },
-        { label: "Download", icon: "⬇️", onClick: () => { handleDownloadFile(file); } },
-        { label: "Rename", icon: "✏️", onClick: () => { setModal({ type: "renameFile", fileId: file.id }); setModalInput(file.title); } },
-        { label: "Move", icon: "📋", onClick: () => { setModal({ type: "moveFile", fileId: file.id }); } },
-        { label: "Delete", icon: "🗑️", onClick: () => { setModal({ type: "deleteFile", fileId: file.id }); }, danger: true },
+        { label: "View", icon: <Eye size={14} />, onClick: () => { onSelectFile(file); } },
+        { label: "Download", icon: <Download size={14} />, onClick: () => { handleDownloadFile(file); } },
+        { label: "Rename", icon: <Pencil size={14} />, onClick: () => { setModal({ type: "renameFile", fileId: file.id }); setModalInput(file.title); } },
+        { label: "Move", icon: <Move size={14} />, onClick: () => { setModal({ type: "moveFile", fileId: file.id }); } },
+        { label: "Delete", icon: <Trash2 size={14} />, onClick: () => { setModal({ type: "deleteFile", fileId: file.id }); }, danger: true },
       ],
     });
   }, [handleDownloadFile, onSelectFile]);
@@ -1104,7 +1109,7 @@ export default function OmManualsLibrary() {
 
   // ═════════════ RENDER ═════════════
   return (
-    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+    <div className="odm-canvas h-screen flex flex-col overflow-hidden">
       {banner && <div className="flex-shrink-0 px-4 pt-3"><Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} /></div>}
 
       {/* Progress Overlays */}
@@ -1112,7 +1117,7 @@ export default function OmManualsLibrary() {
       <ProgressOverlay visible={isDownloading} label={downloadLabel || "Downloading..."} sublabel="Fetching file from server" />
 
       {/* Header */}
-      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}>
+      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)", borderBottom: "1px solid rgba(255,255,255,.08)", boxShadow: "var(--odm-shadow-sm)" }}>
         <div className="flex items-center justify-between px-4 py-2.5">
           <Link to="/" className="flex items-center gap-3 no-underline text-white">
             <ProgramsEngineeringLogo size={56} borderRadius={8} />
@@ -1141,20 +1146,20 @@ export default function OmManualsLibrary() {
           {/* Toolbar */}
           <div className="flex-shrink-0 p-2.5 border-b border-gray-200 space-y-2">
             <div className="relative">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#128269;</span>
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-odm-faint" aria-hidden="true"><Search size={14} /></span>
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search folders and files..."
-                className="w-full pl-8 pr-7 py-1.5 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none" />
-              {search && <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#10005;</button>}
+                className="w-full pl-8 pr-7 py-1.5 border border-odm-border-strong rounded-md text-sm focus:border-odm-blue focus:ring-2 focus:ring-odm-blue/15 outline-none" />
+              {search && <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm"><X size={13} aria-hidden="true" /></button>}
             </div>
             <div className="flex gap-1.5 flex-wrap">
               <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
                 className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
-                <span>📁</span> New Folder
+                <FolderPlus size={13} aria-hidden="true" />New Folder
               </button>
               <button type="button" onClick={() => { if (selectedFolderId) fileInputRef.current?.click(); else setBanner({ type: "info", message: "Select a folder first" }); }}
                 className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
-                <span>📤</span> Upload
+                <Upload size={13} aria-hidden="true" />Upload
               </button>
               <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.svg,.webp,.txt,.csv,.json,.zip,.html,.htm,.xhtml" className="hidden" onChange={handleFileUpload} />
               <button type="button" onClick={expandAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Expand</button>
@@ -1168,15 +1173,15 @@ export default function OmManualsLibrary() {
                 <div className="flex gap-1.5 flex-wrap">
                   <button type="button" onClick={() => { setModal({ type: "createSubfolder", folderId: selectedFolderId }); setModalInput(""); }}
                     className="px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-semibold hover:bg-blue-100 flex items-center gap-1">
-                    <span>📁</span> New Subfolder
+                    <FolderPlus size={13} aria-hidden="true" />New Subfolder
                   </button>
                   <button type="button" onClick={() => { setModal({ type: "renameFolder", folderId: selectedFolderId }); setModalInput(folder.name); }}
                     className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
-                    <span>✏️</span> Rename
+                    <Pencil size={13} aria-hidden="true" />Rename
                   </button>
                   <button type="button" onClick={() => { setModal({ type: "deleteFolder", folderId: selectedFolderId }); }}
                     className="px-2 py-1 bg-white border border-gray-300 text-red-600 rounded text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
-                    <span>🗑️</span> Delete
+                    <Trash2 size={13} aria-hidden="true" />Delete
                   </button>
                 </div>
               ) : null;
@@ -1219,7 +1224,7 @@ export default function OmManualsLibrary() {
               <div className="flex items-center justify-center py-16 text-red-600 text-sm">Failed to load library: {treeError.message}</div>
             ) : displayTree.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
-                <div className="text-3xl mb-2">📂</div>
+                <FolderOpen className="mx-auto mb-2 text-odm-faint" size={30} aria-hidden="true" />
                 <div className="text-sm font-semibold text-gray-600">No folders yet</div>
                 <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
                   className="mt-3 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Create First Folder</button>
@@ -1272,7 +1277,7 @@ export default function OmManualsLibrary() {
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center max-w-md text-gray-400">
-                <div className="text-6xl mb-4">📁</div>
+                <Folder className="mx-auto mb-4 text-odm-faint" size={56} aria-hidden="true" />
                 <h3 className="text-lg font-semibold text-gray-500 mb-2">Document Library</h3>
                 <p className="text-sm">Select a file from the folder tree to view it here.<br />Right-click folders or files for more options.</p>
                 {counts.folders === 0 && (
@@ -1383,7 +1388,7 @@ export default function OmManualsLibrary() {
           <p className="text-xs text-gray-500 mb-2">Select a destination folder:</p>
           <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
             <button type="button" disabled={moveFolder.isPending} onClick={() => submitMoveFolder(null)}
-              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">📁 {moveFolder.isPending ? "Moving..." : "Root (top level)"}</button>
+              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"><Folder size={13} className="inline align-[-2px] mr-1.5 text-odm-muted" aria-hidden="true" />{moveFolder.isPending ? "Moving..." : "Root (top level)"}</button>
             {isDestinationFoldersLoading && destinationOptions.length === 0 && (
               <p className="px-3 py-2 text-xs text-gray-500">Loading destination folders...</p>
             )}

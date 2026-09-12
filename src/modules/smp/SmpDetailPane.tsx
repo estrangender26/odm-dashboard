@@ -1,3 +1,4 @@
+import { AlertTriangle, Download, FileText, FolderTree, Pencil, Trash2, Upload } from "lucide-react";
 import { useMemo } from "react";
 import { storageFileUrl } from "@/lib/direct-storage-upload";
 import { SmpPdfViewer } from "./SmpPdfViewer";
@@ -35,7 +36,7 @@ function InfoField({ label, value }: { label: string; value: React.ReactNode }) 
 function EmptyProcedureData() {
   return (
     <div className="border border-dashed border-gray-300 rounded-lg px-4 py-6 text-center text-gray-400">
-      <div className="text-2xl mb-2">🗂️</div>
+      <FolderTree className="mx-auto mb-2 text-odm-faint" size={24} aria-hidden="true" />
       <p className="text-sm text-gray-500">
         No structured procedure data yet. This will be populated when the approved PDF is ingested.
       </p>
@@ -201,19 +202,19 @@ export function SmpDetailPane({
                 onClick={onEditMetadata}
                 className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded text-xs font-semibold hover:bg-blue-100"
               >
-                ✏️ Edit Metadata
+                <Pencil size={13} aria-hidden="true" /> Edit Metadata
               </button>
               <button
                 onClick={onUploadRevision}
                 className="px-3 py-1.5 bg-green-50 text-green-700 rounded text-xs font-semibold hover:bg-green-100"
               >
-                📤 Upload New Revision
+                <Upload size={13} aria-hidden="true" /> Upload New Revision
               </button>
               <button
                 onClick={onDelete}
                 className="px-3 py-1.5 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100"
               >
-                🗑️ Delete
+                <Trash2 size={13} aria-hidden="true" /> Delete
               </button>
             </div>
           )}
@@ -283,13 +284,13 @@ export function SmpDetailPane({
                   rel="noopener noreferrer"
                   className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700"
                 >
-                  📄 Open PDF
+                  <FileText size={13} aria-hidden="true" /> Open PDF
                 </a>
                 <button
                   onClick={onDownloadFile}
                   className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50"
                 >
-                  ⬇️ Download
+                  <Download size={13} aria-hidden="true" /> Download
                 </button>
               </div>
               <SmpPdfViewer
@@ -301,7 +302,7 @@ export function SmpDetailPane({
             </>
           ) : (
             <div className="border border-dashed border-gray-300 rounded-lg px-4 py-8 text-center text-gray-400">
-              <div className="text-3xl mb-2">📄</div>
+              <FileText className="mx-auto mb-2 text-odm-faint" size={30} aria-hidden="true" />
               <p className="text-sm text-gray-500">
                 No approved PDF has been uploaded for this document yet.
               </p>
@@ -310,7 +311,7 @@ export function SmpDetailPane({
                   onClick={onUploadRevision}
                   className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
                 >
-                  📤 Upload Approved PDF
+                  <Upload size={13} aria-hidden="true" /> Upload Approved PDF
                 </button>
               )}
             </div>
@@ -396,7 +397,7 @@ export function SmpDetailPane({
                           <strong>{task.taskText}</strong>
                           {task.frequency ? ` · ${task.frequency}` : ""}
                         </p>
-                        <p className="text-xs text-amber-800 mt-1">⚠️ {task.escalationTrigger}</p>
+                        <p className="text-xs text-amber-800 mt-1"><AlertTriangle size={13} className="inline align-[-2px] mr-1" aria-hidden="true" />{task.escalationTrigger}</p>
                       </div>
                     ))}
                   </div>

@@ -12,20 +12,23 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
+/* ODM visual system — approved tokens.
+   Surfaces/typography normalized; the KPI red/amber/green status semantics are
+   preserved exactly, because they carry the module's meaning. */
 :root{
-  --navy:#0B1D44;--navy2:#07132E;--blue:#0066A6;--cyan:#00A8D2;--teal:#2AAA8A;
-  --bg:#F0F2F5;--card:#FFFFFF;--border:#D6DFE8;--text:#0F172A;--muted:#5A6B7D;
+  --navy:#16324F;--navy2:#0D2137;--blue:#005BAC;--cyan:#00A8D2;--teal:#2AAA8A;
+  --bg:#F8FAFC;--card:#FFFFFF;--border:#E2E8F0;--border-strong:#CBD5E1;--text:#0F172A;--muted:#64748B;--faint:#94A3B8;
   --green:#0A9B6E;--green-bg:#E6F5EF;--green-light:#D1FAE5;
   --yellow:#D97706;--yellow-bg:#FEF3C7;--yellow-light:#FDE68A;
   --red:#DC2626;--red-bg:#FEF2F2;--red-light:#FECACA;
-  --r:8px;--sh:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.04);--sh-hover:0 2px 8px rgba(0,0,0,.1),0 8px 24px rgba(0,0,0,.06);
+  --r:10px;--r-sm:6px;--sh:none;--sh-hover:0 1px 3px rgba(15,23,42,.06);
   --transition:all .2s cubic-bezier(.4,0,.2,1);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;min-width:320px}
 
 /* HEADER */
-.hdr{background:linear-gradient(180deg,var(--navy) 0%,var(--navy2) 100%);color:#fff;position:sticky;top:0;z-index:100;box-shadow:var(--sh)}
+.hdr{background:linear-gradient(180deg,var(--navy) 0%,var(--navy2) 100%);color:#fff;position:sticky;top:0;z-index:100;border-bottom:1px solid rgba(255,255,255,.08);box-shadow:0 1px 3px rgba(15,23,42,.06)}
 .hdr-in{max-width:1440px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;cursor:pointer;color:#fff}
 .brand h1{font-size:15px;font-weight:700;letter-spacing:-.2px;color:#fff}

@@ -136,12 +136,12 @@ export default function PrimaveraLiteProjectPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="odm-canvas min-h-screen">
       <header
         className="text-white sticky top-0 z-50"
         style={{
-          background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)",
-          boxShadow: "0 4px 12px rgba(22,50,79,0.10)",
+          background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)",
+          boxShadow: "var(--odm-shadow-sm)",
         }}
       >
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">

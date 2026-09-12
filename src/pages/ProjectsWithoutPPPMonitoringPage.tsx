@@ -473,9 +473,9 @@ export default function ProjectsWithoutPPPMonitoringPage() {
   }, [detail]);
 
   return (
-    <div className="min-h-screen" style={{ background: "#F4F6F9", fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif" }}>
+    <div className="odm-canvas min-h-screen" style={{ fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif" }}>
       {/* Header */}
-      <header style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)", color: "#fff", position: "sticky", top: 0, zIndex: 100, boxShadow: "0 4px 12px rgba(22,50,79,0.10)" }}>
+      <header style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)", color: "#fff", position: "sticky", top: 0, zIndex: 100, boxShadow: "var(--odm-shadow-sm)" }}>
         <div style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, textDecoration: "none", color: "inherit" }}>
             <ProgramsEngineeringLogo size={56} borderRadius={8} />

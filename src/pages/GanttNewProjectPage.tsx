@@ -72,10 +72,10 @@ export default function GanttNewProjectPage() {
   const projectPath = created ? stripTokenPath(`/gantt/p/${created.slug}`, created.slug) : "";
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="odm-canvas min-h-screen">
       <header
         className="text-white"
-        style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}
+        style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)" }}
       >
         <div className="mx-auto flex max-w-4xl items-center px-4 py-3">
           <Link

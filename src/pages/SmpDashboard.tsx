@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
 import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
+import { AlertTriangle, CircleCheck, Download, FolderOpen, Info, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { storageFileUrl } from "@/lib/direct-storage-upload";
 import { SmpLibraryList, type SmpFilters } from "@/modules/smp/SmpLibraryList";
@@ -24,7 +25,7 @@ function Banner({ type, message, onDismiss }: {
   };
   return (
     <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
-      <span>{type === "error" ? "⚠️" : type === "success" ? "✅" : "ℹ️"}</span>
+      <span aria-hidden="true">{type === "error" ? <AlertTriangle size={15} /> : type === "success" ? <CircleCheck size={15} /> : <Info size={15} />}</span>
       <span className="flex-1">{message}</span>
       {onDismiss && <button onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
     </div>
@@ -268,7 +269,7 @@ export default function SmpDashboard() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+    <div className="odm-canvas h-screen flex flex-col overflow-hidden">
       {banner && (
         <div className="flex-shrink-0 px-4 pt-3">
           <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />
@@ -276,7 +277,7 @@ export default function SmpDashboard() {
       )}
 
       {/* Header */}
-      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)" }}>
+      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)", borderBottom: "1px solid rgba(255,255,255,.08)", boxShadow: "var(--odm-shadow-sm)" }}>
         <div className="flex items-center justify-between px-4 py-3">
           <Link to="/" className="flex items-center gap-3 no-underline text-white">
             <ProgramsEngineeringLogo size={72} borderRadius={8} />
@@ -292,13 +293,13 @@ export default function SmpDashboard() {
               onClick={() => openUpload("new")}
               className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded text-xs font-semibold hover:bg-white/20 flex items-center gap-1"
             >
-              📤 Upload SMP PDF
+              <Upload size={14} aria-hidden="true" /> Upload SMP PDF
             </button>
             <button
               onClick={handleExport}
               className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded text-xs font-semibold hover:bg-white/20 flex items-center gap-1"
             >
-              📊 Export
+              <Download size={14} aria-hidden="true" /> Export
             </button>
             <div className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-center">
               <div className="text-lg font-bold">{listQuery.data?.total ?? 0}</div>
@@ -328,7 +329,7 @@ export default function SmpDashboard() {
         </div>
 
         {/* RIGHT: detail */}
-        <div className="hidden sm:flex flex-1 flex-col bg-gray-100 min-w-0">
+        <div className="hidden sm:flex flex-1 flex-col bg-odm-sunk min-w-0">
           {detailQuery.data ? (
             <SmpDetailPane
               detail={detailQuery.data}
@@ -342,7 +343,7 @@ export default function SmpDashboard() {
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center max-w-md px-6">
-                <div className="text-6xl mb-4 opacity-30">📋</div>
+                <FolderOpen className="mx-auto mb-4 opacity-30" size={56} aria-hidden="true" />
                 <h3 className="text-lg font-semibold text-gray-400 mb-2">Select a Document</h3>
                 <p className="text-sm text-gray-400">
                   Choose an SMP from the library to view its document control, applicability, approved PDF, and procedure data.
@@ -478,7 +479,7 @@ export default function SmpDashboard() {
 
       {/* Delete confirmation — staged, recorded deletion */}
       {deleteOpen && selectedDoc && (
-        <ModalShell title="🗑️ Delete SMP" onClose={() => setDeleteOpen(false)}>
+        <ModalShell title="Delete SMP" onClose={() => setDeleteOpen(false)}>
           <p className="text-sm text-gray-700 mb-4">
             Are you sure you want to delete <strong>{selectedDoc.code} — {selectedDoc.title}</strong>?
             <br />

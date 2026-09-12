@@ -667,7 +667,7 @@ export default function PresentationCenter() {
         className="sticky top-0 z-30 text-white shadow-md"
         style={{
           background:
-            "linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)",
+            "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)",
         }}
       >
         <div className="mx-auto flex max-w-7xl items-center px-4 py-3">
