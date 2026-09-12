@@ -31,8 +31,25 @@ restored modules.
 
 ## How to open it
 
-Open `index.html` in a browser. Every page links to the others through the dark
-reviewer toolbar at the top.
+**Option 1 — open the file directly (no server, always works).**
+
+Open `index.html` in a browser. Every asset link is relative, so the pages work
+straight from disk:
+
+```bash
+open design/visual-modernization/index.html          # macOS
+```
+
+**Option 2 — serve it locally (nicer for clicking between screens).**
+
+```bash
+node design/visual-modernization/serve.mjs           # then open http://127.0.0.1:4390/
+node design/visual-modernization/serve.mjs 4391      # or pick another port
+```
+
+If the port is already taken the script says so and exits; pass a different one.
+
+Every page links to the others through the dark reviewer toolbar at the top.
 
 ```
 design/visual-modernization/
@@ -48,6 +65,7 @@ design/visual-modernization/
   projects-without-ppp.html  Projects without PPP
   odm.html                   Operator-Driven Maintenance
   presentation-center.html   Presentation Center
+  serve.mjs                  local static preview server
   assets/odm-design.css      proposed design system (the deliverable)
   assets/odm-mockup.css      reviewer chrome + page-specific helpers
   generator/                 generator that produced the static HTML
