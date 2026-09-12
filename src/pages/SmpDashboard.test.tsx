@@ -260,16 +260,16 @@ describe("SMP controlled-document dashboard", () => {
     mocks.detailData = { document: makeDoc({}), revisions: [], sections: [], tasks: [] };
     renderPage();
     fireEvent.click(screen.getAllByText(/MW-ENGG-SP-1\.0/)[0]);
-    expect(screen.queryByText("🗑️ Delete")).not.toBeInTheDocument();
-    expect(screen.queryByText("✏️ Edit Metadata")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Delete$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Edit Metadata/ })).not.toBeInTheDocument();
 
     cleanup();
     mocks.useAuthResult = { user: { role: "admin", name: "Admin" }, isAuthenticated: true, logout: mocks.useAuthResult.logout };
     renderPage();
     fireEvent.click(screen.getAllByText(/MW-ENGG-SP-1\.0/)[0]);
-    expect(screen.getByText("✏️ Edit Metadata")).toBeInTheDocument();
-    expect(screen.getByText("📤 Upload New Revision")).toBeInTheDocument();
-    expect(screen.getByText("🗑️ Delete")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit Metadata/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Upload New Revision/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Delete$/ })).toBeInTheDocument();
   });
 });
 

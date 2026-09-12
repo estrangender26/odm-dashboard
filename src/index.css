@@ -5,24 +5,24 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 222.2 47.4% 11.2%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 222.2 47.4% 11.2%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+    --primary: 208 100% 34%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 212.7 26.8% 83.9%;
+    --ring: 208 100% 34%;
     --radius: 0.625rem;
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
@@ -71,6 +71,96 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ODM VISUAL SYSTEM
+   ---------------------------------------------------------------------------
+   Approved visual modernization tokens. React surface only.
+
+   Deliberately NOT applied to O&M Manual Governance: /governance is served as
+   standalone static HTML from public/governance.html, loads only
+   governance.css + ProgramsEngineeringLogo.css, and loads no React or Tailwind
+   artifact. Nothing in this file can reach it.
+
+   NOTE ON --background: in this codebase `bg-background` means *surface* — it
+   is used by dialogs, sheets, drawers, active tabs and secondary buttons.
+   It therefore stays white. Page canvas is a separate token, --odm-canvas.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* Canvas & surfaces */
+  --odm-canvas: #f8fafc;
+  --odm-surface: #ffffff;
+  --odm-surface-sunk: #f1f5f9;
+  --odm-surface-subtle: #f8fafc;
+
+  /* Borders — one hierarchy (was #d6dfe8 / #e2e8f0 / #cbd5e1 mixed) */
+  --odm-border: #e2e8f0;
+  --odm-border-strong: #cbd5e1;
+  --odm-border-soft: #f1f5f9;
+
+  /* Text */
+  --odm-text: #0f172a;
+  --odm-text-strong: #0b1d44;
+  --odm-text-muted: #64748b;
+  --odm-text-faint: #94a3b8;
+
+  /* Brand */
+  --odm-navy: #16324f;
+  --odm-navy-deep: #0d2137;
+  --odm-navy-ink: #0b1d44;
+  --odm-blue: #005bac;
+  --odm-blue-hover: #004b8d;
+  --odm-blue-soft: #eff6ff;
+  --odm-blue-border: #bfdbfe;
+  --odm-blue-ink: #0066a6;
+
+  /* Semantic — meaning, not decoration */
+  --odm-success: #059669;
+  --odm-success-bg: #ecfdf5;
+  --odm-success-border: #a7f3d0;
+  --odm-warning: #d97706;
+  --odm-warning-bg: #fffbeb;
+  --odm-warning-border: #fde68a;
+  --odm-danger: #dc2626;
+  --odm-danger-bg: #fef2f2;
+  --odm-danger-border: #fecaca;
+  --odm-neutral-bg: #f1f5f9;
+  --odm-neutral-ink: #475569;
+
+  /* Elevation — borders carry structure; elevation is restrained */
+  --odm-shadow-none: none;
+  --odm-shadow-xs: 0 1px 2px rgba(15, 23, 42, .04);
+  --odm-shadow-sm: 0 1px 3px rgba(15, 23, 42, .06);
+  --odm-shadow-md: 0 4px 12px rgba(15, 23, 42, .08);
+  --odm-shadow-lg: 0 10px 24px rgba(15, 23, 42, .1);
+}
+
+@layer components {
+  /* Page canvas — replaces the four different page backgrounds in use
+     (#ffffff, gray-50, slate-50, #f4f6f9). */
+  .odm-canvas {
+    background-color: var(--odm-canvas);
+  }
+
+  /* Card surface — thin border, 10px radius, no shadow at rest. */
+  .odm-surface {
+    background-color: var(--odm-surface);
+    border: 1px solid var(--odm-border);
+    border-radius: 10px;
+  }
+
+  /* Section heading used across module pages. */
+  .odm-eyebrow {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--odm-text-muted);
   }
 }
 /* ── PPTX Viewer overrides ── */

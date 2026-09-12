@@ -46,29 +46,29 @@
       --info-light:       #E3F2FD;
 
       /* Backgrounds */
-      --bg-primary:       #F4F9FC;
-      --bg-secondary:     #EDF3F8;
+      --bg-primary: #F8FAFC;
+      --bg-secondary: #F1F5F9;
       --bg-card:          #FFFFFF;
       --bg-glass:         rgba(255,255,255,0.72);
       --bg-elevated:      #FFFFFF;
-      --bg-hover:         #F5F8FB;
+      --bg-hover: #F1F5F9;
 
       /* Borders */
-      --border-subtle:    rgba(0,91,172,0.08);
-      --border-light:     rgba(0,91,172,0.12);
-      --border-medium:    rgba(0,91,172,0.18);
+      --border-subtle: #E2E8F0;
+      --border-light: #E2E8F0;
+      --border-medium: #CBD5E1;
 
       /* Text */
       --text-primary:     #16324F;
-      --text-secondary:   #4A6380;
-      --text-muted:       #8BA3B8;
+      --text-secondary: #64748B;
+      --text-muted: #94A3B8;
       --text-inverse:     #FFFFFF;
 
       /* Shadows */
       --shadow-xs:        0 1px 2px rgba(22,50,79,0.04);
-      --shadow-sm:        0 1px 3px rgba(22,50,79,0.06), 0 1px 2px rgba(22,50,79,0.04);
+      --shadow-sm: 0 1px 3px rgba(15,23,42,.06);
       --shadow-md:        0 4px 12px rgba(22,50,79,0.08), 0 2px 4px rgba(22,50,79,0.04);
-      --shadow-lg:        0 8px 24px rgba(22,50,79,0.10), 0 4px 8px rgba(22,50,79,0.04);
+      --shadow-lg: 0 4px 12px rgba(15,23,42,.08);
       --shadow-xl:        0 16px 40px rgba(22,50,79,0.12), 0 8px 16px rgba(22,50,79,0.06);
       --shadow-glow:      0 0 20px rgba(0,91,172,0.15);
 
@@ -131,17 +131,14 @@
       top: 0; left: 0; right: 0;
       height: var(--header-height);
       background: linear-gradient(135deg, var(--mw-navy) 0%, var(--mw-navy-dark) 50%, var(--mw-navy) 100%);
-      background-size: 200% 200%;
-      animation: headerShimmer 8s ease-in-out infinite;
+      
+      
       z-index: 1000;
       box-shadow: var(--shadow-lg);
       border-bottom: 1px solid rgba(255,255,255,0.06);
     }
 
-    @keyframes headerShimmer {
-      0%, 100% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-    }
+    
 
     .header-inner {
       max-width: var(--content-max);

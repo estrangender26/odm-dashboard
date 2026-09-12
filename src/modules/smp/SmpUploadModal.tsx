@@ -1,3 +1,4 @@
+import { AlertTriangle, FileText } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { MAX_UPLOAD_ERROR_MESSAGE, MAX_UPLOAD_FILE_SIZE_BYTES } from "@contracts/upload-limits";
@@ -330,7 +331,7 @@ export function SmpUploadModal({
         onClick={() => fileInputRef.current?.click()}
         className="w-full border-2 border-dashed border-gray-300 rounded-lg px-4 py-8 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 flex flex-col items-center gap-2"
       >
-        <span className="text-2xl">📄</span>
+        <FileText className="text-odm-faint" size={26} aria-hidden="true" />
         <span>Click to select the approved PDF ({MAX_UPLOAD_FILE_SIZE_BYTES / 1024 / 1024} MB max)</span>
         <span className="text-xs text-gray-400">or drag and drop a PDF here</span>
       </button>
@@ -354,7 +355,7 @@ export function SmpUploadModal({
   const renderErrorStep = () => (
     <div className="space-y-4">
       <div className="px-4 py-3 border border-red-200 bg-red-50 text-red-800 rounded-lg text-sm">
-        ⚠️ {extractionError}
+        <AlertTriangle size={15} className="inline align-[-3px] mr-1" aria-hidden="true" />{extractionError}
       </div>
       <div className="flex gap-2">
         {file && (
@@ -380,18 +381,18 @@ export function SmpUploadModal({
     return (
       <div className="space-y-5">
         {error && (
-          <div className="px-4 py-3 border border-red-200 bg-red-50 text-red-800 rounded-lg text-sm">⚠️ {error}</div>
+          <div className="px-4 py-3 border border-red-200 bg-red-50 text-red-800 rounded-lg text-sm"><AlertTriangle size={15} className="inline align-[-3px] mr-1" aria-hidden="true" />{error}</div>
         )}
 
         {seriesMismatch && (
           <div className="px-4 py-3 border border-red-200 bg-red-50 text-red-800 rounded-lg text-sm">
-            ⚠️ PDF reference number ({extraction?.code}) does not match this document series ({document?.code ?? ""}).
+            <AlertTriangle size={15} className="inline align-[-3px] mr-1" aria-hidden="true" />PDF reference number ({extraction?.code}) does not match this document series ({document?.code ?? ""}).
           </div>
         )}
 
         {extraction && !extraction.isEmpty && (
           <div className="px-4 py-2 border border-green-200 bg-green-50 text-green-800 rounded-lg text-xs">
-            📄 Extracted {extraction.sections.length} section{extraction.sections.length === 1 ? "" : "s"} and {extraction.tasks.length} task{extraction.tasks.length === 1 ? "" : "s"}. Review and correct the pre-filled fields before uploading.
+            <FileText size={15} className="inline align-[-3px] mr-1" aria-hidden="true" />Extracted {extraction.sections.length} section{extraction.sections.length === 1 ? "" : "s"} and {extraction.tasks.length} task{extraction.tasks.length === 1 ? "" : "s"}. Review and correct the pre-filled fields before uploading.
           </div>
         )}
 
@@ -548,7 +549,7 @@ export function SmpUploadModal({
     <ModalShell title={modalTitle} onClose={onClose}>
       <div className="space-y-4">
         {error && step !== "error" && (
-          <div className="px-4 py-3 border border-red-200 bg-red-50 text-red-800 rounded-lg text-sm">⚠️ {error}</div>
+          <div className="px-4 py-3 border border-red-200 bg-red-50 text-red-800 rounded-lg text-sm"><AlertTriangle size={15} className="inline align-[-3px] mr-1" aria-hidden="true" />{error}</div>
         )}
         {step === "select" && renderSelectStep()}
         {step === "extracting" && renderExtractingStep()}

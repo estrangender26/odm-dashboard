@@ -1,3 +1,4 @@
+import { AlertTriangle, Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import { storageFileUrl } from "@/lib/direct-storage-upload";
 
@@ -29,7 +30,7 @@ export function SmpPdfViewer({
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-100 rounded-lg border border-gray-200 min-h-[420px]">
         <div className="text-center max-w-md text-gray-400 px-4">
-          <div className="text-5xl mb-4">⚠️</div>
+          <AlertTriangle className="mx-auto mb-4 text-odm-warning" size={48} aria-hidden="true" />
           <h3 className="text-lg font-semibold text-gray-600 mb-2">Cannot Preview PDF</h3>
           <p className="text-sm mb-4">The file may be unavailable or the preview failed to load.</p>
           {onDownload && (
@@ -37,7 +38,7 @@ export function SmpPdfViewer({
               onClick={onDownload}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
             >
-              ⬇️ Download PDF
+              <Download size={13} aria-hidden="true" /> Download PDF
             </button>
           )}
         </div>
@@ -77,7 +78,7 @@ export function SmpPdfViewer({
             onClick={onDownload}
             className="px-2.5 py-1.5 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 font-semibold flex items-center gap-1 flex-shrink-0"
           >
-            ⬇️ Download
+            <Download size={13} aria-hidden="true" /> Download
           </button>
         )}
       </div>

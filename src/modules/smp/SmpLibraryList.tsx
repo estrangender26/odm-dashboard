@@ -1,3 +1,4 @@
+import { FolderOpen, Search, Upload, X } from "lucide-react";
 import { legacyStatusBadge, revisionStatusBadge, formatSmpDate } from "./smpFormat";
 import type { SmpDocumentListItem } from "./types";
 
@@ -58,7 +59,7 @@ export function SmpLibraryList({
       {/* Toolbar */}
       <div className="flex-shrink-0 p-3 border-b border-gray-200 space-y-2">
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">&#128269;</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-odm-faint" aria-hidden="true"><Search size={14} /></span>
           <input
             type="text"
             value={search}
@@ -68,32 +69,32 @@ export function SmpLibraryList({
           />
           {search && (
             <button onClick={() => onSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-              &#10005;
+              <X size={13} aria-hidden="true" />
             </button>
           )}
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-          <select value={filters.family || ""} onChange={select("family")} className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white">
+          <select value={filters.family || ""} onChange={select("family")} className="px-2 py-1.5 border border-odm-border-strong rounded-md text-xs bg-white">
             <option value="">All Families</option>
             {availableFilters.families.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
-          <select value={filters.equipmentType || ""} onChange={select("equipmentType")} className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white">
+          <select value={filters.equipmentType || ""} onChange={select("equipmentType")} className="px-2 py-1.5 border border-odm-border-strong rounded-md text-xs bg-white">
             <option value="">All Equipment</option>
             {availableFilters.equipmentTypes.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
-          <select value={filters.facilityType || ""} onChange={select("facilityType")} className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white">
+          <select value={filters.facilityType || ""} onChange={select("facilityType")} className="px-2 py-1.5 border border-odm-border-strong rounded-md text-xs bg-white">
             <option value="">All Facility Types</option>
             {availableFilters.facilityTypes.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
-          <select value={filters.criticality || ""} onChange={select("criticality")} className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white">
+          <select value={filters.criticality || ""} onChange={select("criticality")} className="px-2 py-1.5 border border-odm-border-strong rounded-md text-xs bg-white">
             <option value="">All Criticality</option>
             {availableFilters.criticalities.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
-          <select value={filters.revision || ""} onChange={select("revision")} className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white">
+          <select value={filters.revision || ""} onChange={select("revision")} className="px-2 py-1.5 border border-odm-border-strong rounded-md text-xs bg-white">
             <option value="">All Revisions</option>
             {availableFilters.revisions.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
-          <select value={filters.status || ""} onChange={select("status")} className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white">
+          <select value={filters.status || ""} onChange={select("status")} className="px-2 py-1.5 border border-odm-border-strong rounded-md text-xs bg-white">
             <option value="">All Status</option>
             {availableFilters.statuses.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
@@ -103,7 +104,7 @@ export function SmpLibraryList({
             onClick={onUploadClick}
             className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 flex items-center gap-1"
           >
-            📤 Upload SMP PDF
+            <Upload size={14} aria-hidden="true" /> Upload SMP PDF
           </button>
           {hasActiveFilters && (
             <button onClick={onClearFilters} className="px-3 py-1.5 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100">
@@ -131,7 +132,7 @@ export function SmpLibraryList({
           </div>
         ) : items.length === 0 ? (
           <div className="text-center py-16 px-6 text-gray-400">
-            <div className="text-4xl mb-3">📂</div>
+            <FolderOpen className="mx-auto mb-3 text-odm-faint" size={40} aria-hidden="true" />
             {hasActiveFilters ? (
               <>
                 <div className="text-sm font-semibold text-gray-600">No documents match your search</div>
@@ -147,7 +148,7 @@ export function SmpLibraryList({
                   onClick={onUploadClick}
                   className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
                 >
-                  📤 Upload Approved SMP PDF
+                  <Upload size={14} aria-hidden="true" /> Upload Approved SMP PDF
                 </button>
               </>
             )}
