@@ -87,14 +87,20 @@ describe("Anonymous Upload Security", () => {
     expect(source).toContain("Anonymous upload session expired");
   });
 
-  it("documents-router destructive procedures require authentication", () => {
+  it("documents-router rename is public but destructive procedures require authentication", () => {
     const source = readFileSync(join(root, "api/documents-router.ts"), "utf8");
     
     // uploadFile should remain public
     expect(source).toContain("uploadFile: publicQuery");
     
-    // destructive procedures require authentication
-    for (const procedure of ["deleteFile:", "renameFile:", "moveFile:", "deleteFolder:", "renameFolder:", "moveFolder:"]) {
+    // O&M Manuals Library folder rename is intentionally available without login
+    // (ordinary library users do not authenticate). See the permission-boundary
+    // comment on the renameFolder procedure.
+    expect(source).toContain("renameFolder: publicQuery");
+    expect(source).not.toContain("renameFolder: authedQuery");
+    
+    // destructive and remaining mutation procedures require authentication
+    for (const procedure of ["deleteFile:", "renameFile:", "moveFile:", "deleteFolder:", "moveFolder:"]) {
       const section = source.slice(source.indexOf(procedure), source.indexOf(procedure) + 200);
       expect(section).toContain("authedQuery");
     }

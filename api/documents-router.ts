@@ -718,12 +718,23 @@ export const documentsRouter = {
     }),
 
   // ── Rename folder ──
-  renameFolder: authedQuery
-    .input(z.object({ id: z.number(), name: z.string().min(1).max(255) }))
+  // PERMISSION BOUNDARY (intentional, do not "fix"): renaming an O&M Manuals
+  // Library folder is a public, no-login operation. Ordinary library users must
+  // be able to rename folders, so this procedure uses publicQuery instead of
+  // authedQuery. Destructive operations (deleteFolder/deleteFile) must stay
+  // owner-only: do NOT propagate this relaxation to them, and do NOT replace it
+  // with a blanket "O&M module mutations are public" rule.
+  renameFolder: publicQuery
+    .input(z.object({ id: z.number().int().positive(), name: z.string().min(1).max(255) }))
     .mutation(async ({ input }) => {
       try {
+        // Validation stays server-side even without login: reject blank and
+        // whitespace-only names before touching the database.
         const name = normalizeFolderName(input.name);
         if (!name) throw new TRPCError({ code: "BAD_REQUEST", message: "Folder name is required" });
+        // Single-row, primary-key-scoped, parameterized update. Only the `name`
+        // of the requested folder changes: its id, its files and its child
+        // folders are left untouched, and no other folder can be affected.
         const result = await db
           .update(docFolders)
           .set({ name, updatedAt: new Date() })

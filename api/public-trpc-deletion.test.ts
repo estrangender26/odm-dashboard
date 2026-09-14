@@ -35,7 +35,14 @@ vi.mock("./queries/connection", () => ({
     })),
     update: vi.fn(() => ({
       set: vi.fn(() => ({
-        where: vi.fn(() => Promise.resolve(mocks.dbUpdateResult)),
+        where: vi.fn(() => {
+          // Supports both awaited `.where(...)` and `.where(...).returning()` chains.
+          const chain: any = {
+            returning: vi.fn(() => Promise.resolve(mocks.dbUpdateResult)),
+            then: (resolve: (value: any) => void) => resolve(mocks.dbUpdateResult),
+          };
+          return chain;
+        }),
       })),
     })),
     insert: vi.fn(() => ({
@@ -153,12 +160,6 @@ describe("BEHAVIORAL TESTS: tRPC destructive procedures", () => {
       await expect(caller.documents.renameFile({ id: 101, title: "x.pdf" })).rejects.toThrow(TRPCError);
     });
 
-    it("documents.renameFolder rejects with UNAUTHORIZED", async () => {
-      const ctx = createUnauthCtx();
-      const caller = deletionTestRouter.createCaller(ctx);
-      await expect(caller.documents.renameFolder({ id: 101, name: "x" })).rejects.toThrow(TRPCError);
-    });
-
     it("documents.moveFile rejects with UNAUTHORIZED", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
@@ -193,6 +194,31 @@ describe("BEHAVIORAL TESTS: tRPC destructive procedures", () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
       await expect(caller.govFiles.delete({ id: 102 })).rejects.toThrow(TRPCError);
+    });
+  });
+
+  describe("anonymous folder rename (intentional public O&M operation)", () => {
+    beforeEach(() => {
+      vi.mocked(authenticateRequest).mockRejectedValue(new Error("No auth"));
+    });
+
+    it("documents.renameFolder is NOT in the protected set and succeeds without login", async () => {
+      const ctx = createUnauthCtx();
+      const caller = deletionTestRouter.createCaller(ctx);
+      mocks.dbUpdateResult = [{ id: 101, name: "Renamed" }];
+
+      await expect(caller.documents.renameFolder({ id: 101, name: "Renamed" })).resolves.toMatchObject({
+        success: true,
+        folder: { id: 101, name: "Renamed" },
+      });
+    });
+
+    it("relaxing rename did not relax delete", async () => {
+      const ctx = createUnauthCtx();
+      const caller = deletionTestRouter.createCaller(ctx);
+
+      await expect(caller.documents.deleteFolder({ id: 101 })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(caller.documents.deleteFile({ id: 101 })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
   });
 
