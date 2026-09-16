@@ -1,13 +1,47 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, publicQuery, authedQuery, adminQuery } from "./middleware";
 import { db, cacheGet, cacheSet, cacheInvalidate } from "./queries/connection";
 import { mwInspections } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
+import {
+  MwAuditOperation,
+  newMwCorrelationId,
+  recordMwInspectionAudit,
+} from "./mw-audit";
+
+/**
+ * Operator-Driven Maintenance — authorization boundaries.
+ *
+ * Incident context: on 2026-09-16 production `mw_inspections` lost ~14,171
+ * historical rows (16,543 -> 2,372). Every mutating ODM procedure below was a
+ * `publicQuery` (no authentication) and nothing recorded the operation. The
+ * boundaries are now:
+ *
+ *   listInspections   publicQuery  anonymous read — the dashboard must open without login
+ *   getInspection     publicQuery  anonymous read
+ *   importExcel       publicQuery  operator data entry — retained anonymous BY EXPLICIT
+ *                                  DECISION, see docs/odm-inspection-authorization.md.
+ *                                  Upsert-only: it can never delete a row.
+ *   updateInspection  authedQuery  authenticated write (matches docs/rls-deployment-plan.md)
+ *   deleteInspection  adminQuery   OWNER-only; destroys inspection evidence
+ *   resetAll          adminQuery   OWNER-only + typed confirmation; whole-dataset deletion
+ *
+ * Every write path writes an `mw_inspection_audit` row in the same transaction
+ * as its mutation, so a mutation that cannot be attributed cannot commit.
+ */
+export const MW_RESET_ALL_CONFIRMATION = "DELETE ALL ODM INSPECTIONS" as const;
 
 export const mwRouter = createRouter({
   // Import Excel data — UPSERT: insert new, update existing on conflict
   // Unique key: (asset_tag, task, date, submitted_at)
   // Same file re-uploaded = existing rows UPDATE with new data
+  //
+  // Authorization: intentionally anonymous (documents/odm-inspection-authorization.md).
+  // The ODM dashboard is served without any login affordance and anonymous
+  // importing is the module's only data-entry path; this procedure is additive
+  // (INSERT ... ON CONFLICT DO UPDATE) and cannot remove a row. Every call is
+  // attributed in `mw_inspection_audit` (actorId null => anonymous) so the
+  // actor of a future dataset rewrite is knowable.
   importExcel: publicQuery
     .input(z.object({
       rows: z.array(z.object({
@@ -60,32 +94,46 @@ export const mwRouter = createRouter({
         updatedBy: user?.name ?? "system",
       }));
 
-      // UPSERT: ON CONFLICT DO UPDATE — re-uploading same file updates existing records
-      await db.insert(mwInspections)
-        .values(dbRows)
-        .onConflictDoUpdate({
-          target: [mwInspections.assetTag, mwInspections.task, mwInspections.date, mwInspections.submittedAt],
-          set: {
-            submissionId: sql`EXCLUDED.${sql.raw(mwInspections.submissionId.name)}`,
-            facilityId: sql`EXCLUDED.${sql.raw(mwInspections.facilityId.name)}`,
-            inspector: sql`EXCLUDED.${sql.raw(mwInspections.inspector.name)}`,
-            inspectionDate: sql`EXCLUDED.${sql.raw(mwInspections.inspectionDate.name)}`,
-            assetName: sql`EXCLUDED.${sql.raw(mwInspections.assetName.name)}`,
-            equipmentType: sql`EXCLUDED.${sql.raw(mwInspections.equipmentType.name)}`,
-            category: sql`EXCLUDED.${sql.raw(mwInspections.category.name)}`,
-            task: sql`EXCLUDED.${sql.raw(mwInspections.task.name)}`,
-            capture1Label: sql`EXCLUDED.${sql.raw(mwInspections.capture1Label.name)}`,
-            capture1Response: sql`EXCLUDED.${sql.raw(mwInspections.capture1Response.name)}`,
-            escalationTrigger: sql`EXCLUDED.${sql.raw(mwInspections.escalationTrigger.name)}`,
-            entryNotes: sql`EXCLUDED.${sql.raw(mwInspections.entryNotes.name)}`,
-            status: sql`EXCLUDED.${sql.raw(mwInspections.status.name)}`,
-            score: sql`EXCLUDED.${sql.raw(mwInspections.score.name)}`,
-            findings: sql`EXCLUDED.${sql.raw(mwInspections.findings.name)}`,
-            frequency: sql`EXCLUDED.${sql.raw(mwInspections.frequency.name)}`,
-            updatedBy: user?.name ?? "system",
-            updatedAt: new Date(),
-          }
+      // UPSERT: ON CONFLICT DO UPDATE — re-uploading same file updates existing records.
+      // The audit row shares this transaction: an import that cannot be attributed
+      // does not commit.
+      const correlationId = newMwCorrelationId();
+      await db.transaction(async (tx) => {
+        await tx.insert(mwInspections)
+          .values(dbRows)
+          .onConflictDoUpdate({
+            target: [mwInspections.assetTag, mwInspections.task, mwInspections.date, mwInspections.submittedAt],
+            set: {
+              submissionId: sql`EXCLUDED.${sql.raw(mwInspections.submissionId.name)}`,
+              facilityId: sql`EXCLUDED.${sql.raw(mwInspections.facilityId.name)}`,
+              inspector: sql`EXCLUDED.${sql.raw(mwInspections.inspector.name)}`,
+              inspectionDate: sql`EXCLUDED.${sql.raw(mwInspections.inspectionDate.name)}`,
+              assetName: sql`EXCLUDED.${sql.raw(mwInspections.assetName.name)}`,
+              equipmentType: sql`EXCLUDED.${sql.raw(mwInspections.equipmentType.name)}`,
+              category: sql`EXCLUDED.${sql.raw(mwInspections.category.name)}`,
+              task: sql`EXCLUDED.${sql.raw(mwInspections.task.name)}`,
+              capture1Label: sql`EXCLUDED.${sql.raw(mwInspections.capture1Label.name)}`,
+              capture1Response: sql`EXCLUDED.${sql.raw(mwInspections.capture1Response.name)}`,
+              escalationTrigger: sql`EXCLUDED.${sql.raw(mwInspections.escalationTrigger.name)}`,
+              entryNotes: sql`EXCLUDED.${sql.raw(mwInspections.entryNotes.name)}`,
+              status: sql`EXCLUDED.${sql.raw(mwInspections.status.name)}`,
+              score: sql`EXCLUDED.${sql.raw(mwInspections.score.name)}`,
+              findings: sql`EXCLUDED.${sql.raw(mwInspections.findings.name)}`,
+              frequency: sql`EXCLUDED.${sql.raw(mwInspections.frequency.name)}`,
+              updatedBy: user?.name ?? "system",
+              updatedAt: new Date(),
+            }
+          });
+
+        await recordMwInspectionAudit(tx, {
+          operation: MwAuditOperation.importExcel,
+          actor: user,
+          resource: "mw_inspections",
+          affectedCount: dbRows.length,
+          detail: { filename: input.filename ?? null },
+          correlationId,
         });
+      });
 
       // With onConflictDoUpdate, processed count assumes all rows were inserted or updated
       const processed = input.rows.length;
@@ -93,7 +141,7 @@ export const mwRouter = createRouter({
       // Invalidate cache so next read fetches fresh data
       cacheInvalidate("mw_inspections");
 
-      return { success: true, processed, total: input.rows.length };
+      return { success: true, processed, total: input.rows.length, correlationId };
     }),
 
   // List all inspections — uses cache for read-after-write consistency
@@ -131,8 +179,9 @@ export const mwRouter = createRouter({
       return rows[0] || null;
     }),
 
-  // Update inspection
-  updateInspection: publicQuery
+  // Update inspection — authenticated write (docs/rls-deployment-plan.md:
+  // anonymous read-only, authenticated write). Audited in the same transaction.
+  updateInspection: authedQuery
     .input(z.object({
       id: z.number(),
       facilityId: z.any().optional(),
@@ -154,25 +203,88 @@ export const mwRouter = createRouter({
       if (input.findings !== undefined) updates.findings = input.findings;
       if (input.date !== undefined) updates.date = input.date;
 
-      await db.update(mwInspections).set(updates).where(eq(mwInspections.id, input.id));
+      const correlationId = newMwCorrelationId();
+      const affected = await db.transaction(async (tx) => {
+        const updated = await tx
+          .update(mwInspections)
+          .set(updates)
+          .where(eq(mwInspections.id, input.id))
+          .returning({ id: mwInspections.id });
+
+        await recordMwInspectionAudit(tx, {
+          operation: MwAuditOperation.updateInspection,
+          actor: user,
+          resource: `mw_inspections#${input.id}`,
+          affectedCount: updated.length,
+          detail: {
+            fields: Object.keys(updates).filter(
+              (field) => field !== "updatedBy" && field !== "updatedAt",
+            ),
+          },
+          correlationId,
+        });
+
+        return updated.length;
+      });
+
       cacheInvalidate("mw_inspections");
-      return { success: true };
+      return { success: true, affected, correlationId };
     }),
 
-  // Delete inspection
-  deleteInspection: publicQuery
+  // Delete inspection — OWNER-only: destroying inspection evidence requires an
+  // admin session, and the deletion is audited in the same transaction.
+  deleteInspection: adminQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await db.delete(mwInspections).where(eq(mwInspections.id, input.id));
+    .mutation(async ({ input, ctx }) => {
+      const correlationId = newMwCorrelationId();
+      const removed = await db.transaction(async (tx) => {
+        const deleted = await tx
+          .delete(mwInspections)
+          .where(eq(mwInspections.id, input.id))
+          .returning({ id: mwInspections.id });
+
+        await recordMwInspectionAudit(tx, {
+          operation: MwAuditOperation.deleteInspection,
+          actor: ctx.user,
+          resource: `mw_inspections#${input.id}`,
+          affectedCount: deleted.length,
+          correlationId,
+        });
+
+        return deleted.length;
+      });
+
       cacheInvalidate("mw_inspections");
-      return { success: true };
+      return { success: true, removed, correlationId };
     }),
 
-  // Reset all data
-  resetAll: publicQuery
-    .mutation(async () => {
-      await db.delete(mwInspections);
+  // Reset all data — OWNER-only and never part of the browser workflow.
+  //
+  // The ODM dashboard's "Clear" control no longer calls this (it now clears only
+  // the browser's cached copy). Whole-dataset deletion remains available as an
+  // explicitly guarded OWNER operation: admin session + the exact confirmation
+  // phrase, and the deletion and its audit row commit together. Whole-dataset
+  // deletion from an ordinary operational workflow is deliberately eliminated.
+  resetAll: adminQuery
+    .input(z.object({ confirm: z.literal(MW_RESET_ALL_CONFIRMATION) }))
+    .mutation(async ({ ctx }) => {
+      const correlationId = newMwCorrelationId();
+      const removed = await db.transaction(async (tx) => {
+        const deleted = await tx.delete(mwInspections).returning({ id: mwInspections.id });
+
+        await recordMwInspectionAudit(tx, {
+          operation: MwAuditOperation.resetAll,
+          actor: ctx.user,
+          resource: "mw_inspections",
+          affectedCount: deleted.length,
+          detail: { confirmationPhrase: MW_RESET_ALL_CONFIRMATION },
+          correlationId,
+        });
+
+        return deleted.length;
+      });
+
       cacheInvalidate("mw_inspections");
-      return { success: true };
+      return { success: true, removed, correlationId };
     }),
 });

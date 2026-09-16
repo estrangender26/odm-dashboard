@@ -129,6 +129,44 @@ export const mwInspections = pgTable("mw_inspections", {
   unique("mw_inspections_dedup").on(table.assetTag, table.task, table.date, table.submittedAt),
 ]);
 
+/**
+ * Audit trail for Operator-Driven Maintenance inspection mutations.
+ *
+ * Incident context (2026-09-16): approximately 14,171 historical
+ * `mw_inspections` rows disappeared (16,543 -> 2,372) and no record existed of
+ * the operation, actor, time or affected count, because the ODM mutating tRPC
+ * procedures were callable without authentication and nothing was written
+ * anywhere when they ran.
+ *
+ * Every ODM write path now records one row here inside the same transaction as
+ * the mutation, so a mutation that cannot be attributed cannot commit.
+ * Follows the existing `smp_deletion_records` convention (actor + count +
+ * status of a destructive operation).
+ *
+ * Deliberately stores no secrets and no authentication material: no cookies,
+ * no tokens, no email addresses. `actor_id` is the `users.id` of the
+ * authenticated caller, or NULL for an unauthenticated caller
+ * (`actor_role = 'anonymous'`).
+ */
+export const mwInspectionAudit = pgTable("mw_inspection_audit", {
+  id: serial("id").primaryKey(),
+  // reset_all | delete_inspection | update_inspection | import_excel
+  operation: varchar("operation", { length: 32 }).notNull(),
+  actorId: integer("actor_id"),
+  actorRole: varchar("actor_role", { length: 50 }),
+  // "mw_inspections" or "mw_inspections#<id>" for single-row operations
+  resource: varchar("resource", { length: 255 }).notNull(),
+  affectedCount: integer("affected_count").notNull().default(0),
+  correlationId: varchar("correlation_id", { length: 64 }).notNull(),
+  detail: jsonb("detail").default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("mw_inspection_audit_operation_idx").on(table.operation, table.createdAt),
+]);
+
+export type MwInspectionAuditRow = typeof mwInspectionAudit.$inferSelect;
+export type InsertMwInspectionAuditRow = typeof mwInspectionAudit.$inferInsert;
+
 export const mwCompliance = pgTable("mw_compliance", {
   id: serial("id").primaryKey(),
   facilityId: varchar("facility_id", { length: 50 }).notNull(),

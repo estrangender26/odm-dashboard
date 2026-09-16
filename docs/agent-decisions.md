@@ -30,3 +30,18 @@ Agent rule:
 - KPI counts projects (not files): two files on one project still count as one Submitted project.
 - Reference-data updates through the bootstrap must never delete submission/file history.
 - Public file deletion for this module is forbidden; removal of current evidence is the admin-only `supersede` flow (history preserved).
+
+## Operator-Driven Maintenance — destructive operations are OWNER-only and audited
+
+Decision:
+The ODM (`mw.*`) inspection procedures have an explicit authorization boundary: reads (`listInspections`, `getInspection`) are anonymous; `importExcel` is deliberately anonymous because it is the module's only data-entry path and is upsert-only; `updateInspection` is `authedQuery`; `deleteInspection` and `resetAll` are OWNER-only (`adminQuery`), and `resetAll` additionally requires the exact typed phrase `DELETE ALL ODM INSPECTIONS`. The dashboard's Clear control no longer calls `mw.resetAll` — it clears only the browser's cached copy and reloads from the database. Every ODM write records an `mw_inspection_audit` row in the same transaction as the mutation.
+
+Context:
+On 2026-09-16 production `mw_inspections` dropped from 16,543 rows (measured 2026-09-11) to 2,372 rows. `mw.resetAll` was an unauthenticated `DELETE FROM mw_inspections` wired to the dashboard's Clear button, `deleteInspection`/`updateInspection` were public too, and no audit record of any operation existed. Full analysis: `docs/odm-inspection-authorization.md`.
+
+Agent rule:
+- Never regress a destructive ODM procedure to `publicQuery`; `api/mw-router-authorization.test.ts` fails if you do.
+- Never add whole-table DELETE/TRUNCATE to an ordinary operational workflow. Whole-dataset deletion, if ever needed again, is an OWNER-only, typed-confirmation, audited operation.
+- Never test destructive containment against production; use `api/mw-router-fake-db.ts` or an isolated database.
+- `importExcel` must stay upsert-only. Making it authenticated is an OWNER decision (it requires a login affordance on the dashboard first).
+- The canonical inspection identity is `(asset_tag, task, date, submitted_at)`; the router's conflict target must match the schema constraint.
