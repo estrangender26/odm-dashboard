@@ -269,15 +269,6 @@
       transform: translateY(-1px);
     }
 
-    .btn-ghost-warn {
-      background: rgba(245,158,11,0.1);
-      color: #F59E0B;
-      border: 1px solid rgba(245,158,11,0.2);
-    }
-    .btn-ghost-warn:hover {
-      background: rgba(245,158,11,0.2);
-    }
-
     .upload-wrap {
       position: relative;
       display: inline-flex;
@@ -1450,14 +1441,6 @@
         </svg>
         Ask AI
       </button>
-
-      <button class="btn btn-ghost-warn" id="clearDataBtn" style="display:none">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="3 6 5 6 21 6"/>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-        </svg>
-        Clear
-      </button>
     </div>
   </div>
 </header>
@@ -1935,7 +1918,6 @@ let inspectorTabRendered = false;
 
 /* ---------- Persistence (localStorage) ---------- */
 const LS_KEY = 'mwc_odm_data';
-const LS_FILENAME = 'mwc_odm_filename';
 
 function saveToStorage() {
   const storable = rawRows.map(r => ({
@@ -1962,38 +1944,15 @@ function loadFromStorage() {
   }
 }
 
-function clearStorageUI() {
-  rawRows = [];
-  dashboardSummaryRows = [];
-  if (chartEsc) { chartEsc.destroy(); chartEsc = null; }
-  if (chartPareto) { chartPareto.destroy(); chartPareto = null; }
-  document.getElementById('filters').style.display = 'none';
-  document.getElementById('kpis').style.display = 'none';
-  document.getElementById('mainGrid').style.display = 'none';
-  document.getElementById('tablesPanel').style.display = 'none';
-  document.getElementById('emptyState').style.display = 'block';
-  document.getElementById('refreshBtn').style.display = 'none';
-  document.getElementById('clearDataBtn').style.display = 'none';
-  document.getElementById('loadedFileName').textContent = '';
-  ['plantFilter','equipFilter','categoryFilter','inspectorFilter'].forEach(id => {
-    document.getElementById(id).innerHTML = '<option value="">All</option>';
-  });
-  document.getElementById('fileInput').value = '';
-}
-
-function clearStorage() {
-  resetDatabase();
-}
-
-/* ---------- Refresh & Clear Data Buttons ---------- */
+/* ---------- Refresh Data Button ----------
+   This is the only dashboard control that acts on data. There is deliberately
+   no client-side way to clear or delete inspection data: the shared dataset is
+   authoritative and server-side, and whole-dataset deletion is an OWNER-only,
+   audited server operation (see docs/odm-inspection-authorization.md). */
 document.getElementById('refreshBtn').addEventListener('click', () => {
   loadFromDatabase().then(() => {
     alert('Data refreshed from database. All users will see the same data.');
   });
-});
-
-document.getElementById('clearDataBtn').addEventListener('click', () => {
-  clearStorage();
 });
 
 /* ---------- File Handling ---------- */
@@ -2983,7 +2942,6 @@ function loadFromDatabase() {
         if (loadFromStorage()) {
           document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage';
           document.getElementById('refreshBtn').style.display = 'inline-flex';
-          document.getElementById('clearDataBtn').style.display = 'inline-flex';
           buildFilterOptions();
           showDashboard();
           refreshAll();
@@ -3017,7 +2975,6 @@ function loadFromDatabase() {
       document.getElementById('loadedFileName').textContent = rows.length + ' records from database';
       document.getElementById('uploadProgress').style.display = 'none';
       document.getElementById('refreshBtn').style.display = 'inline-flex';
-      document.getElementById('clearDataBtn').style.display = 'inline-flex';
       buildFilterOptions();
       showDashboard();
       refreshAll();
@@ -3028,7 +2985,6 @@ function loadFromDatabase() {
       if (loadFromStorage()) {
         document.getElementById('loadedFileName').textContent = rawRows.length + ' records from local storage (API unavailable)';
         document.getElementById('refreshBtn').style.display = 'inline-flex';
-        document.getElementById('clearDataBtn').style.display = 'inline-flex';
         buildFilterOptions();
         showDashboard();
         refreshAll();
@@ -3042,7 +2998,6 @@ var apiAvailable = true;
 function importToDatabase(rows, filename) {
   document.getElementById('loadedFileName').textContent = (filename || 'Importing') + ' — uploading ' + rows.length + ' rows...';
   document.getElementById('refreshBtn').style.display = 'inline-flex';
-  document.getElementById('clearDataBtn').style.display = 'inline-flex';
 
   var payload = rows.map(function(r) {
     return {
@@ -3145,20 +3100,9 @@ function useClientSide(rows, filename) {
   document.getElementById('loadedFileName').textContent =
     (filename || 'Import') + ' — ' + uniqueRows.length + ' records (client-side, API unavailable)';
   document.getElementById('refreshBtn').style.display = 'inline-flex';
-  document.getElementById('clearDataBtn').style.display = 'inline-flex';
   buildFilterOptions();
   showDashboard();
   refreshAll();
-}
-
-function resetDatabase() {
-  if (!confirm('Are you sure you want to clear ALL inspection data?')) return;
-  localStorage.removeItem(LS_KEY);
-  localStorage.removeItem(LS_FILENAME);
-  apiCall('/mw.resetAll', {},
-    function() { rawRows = []; clearStorageUI(); },
-    function(err) { rawRows = []; clearStorageUI(); }
-  );
 }
 
 /* ============================================================
