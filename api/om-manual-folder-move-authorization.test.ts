@@ -290,7 +290,7 @@ describe("E. library boundary is preserved", () => {
   });
 });
 
-describe("F. destructive and file-level operations stay protected without login", () => {
+describe("F. destructive and remaining operations stay protected without login", () => {
   it("rejects anonymous folder and file deletion", async () => {
     await expect(anonymousCaller().documents.deleteFolder({ id: 2 })).rejects.toMatchObject({
       code: "UNAUTHORIZED",
@@ -303,11 +303,14 @@ describe("F. destructive and file-level operations stay protected without login"
     expect(storageMocks.remove).not.toHaveBeenCalled();
   });
 
-  it("rejects the file-level mutations and file reads without login", async () => {
+  it("rejects the remaining protected operations without login", async () => {
     const caller = anonymousCaller();
 
-    await expect(caller.documents.moveFile({ id: 11, folderId: 3 })).rejects.toMatchObject({
-      code: "UNAUTHORIZED",
+    // File moves became public with the file-move correction and are covered by
+    // om-manual-file-move-authorization.test.ts; file rename and file reads stay
+    // protected.
+    await expect(caller.documents.moveFile({ id: 11, folderId: 3 })).resolves.toMatchObject({
+      success: true,
     });
     await expect(caller.documents.renameFile({ id: 11, title: "renamed.pdf" })).rejects.toMatchObject({
       code: "UNAUTHORIZED",
@@ -372,8 +375,8 @@ describe("H. permission boundary stays narrow (source level)", () => {
     expect(source).toContain("getTree: publicQuery");
   });
 
-  it("keeps destructive and file-level procedures authenticated", () => {
-    for (const procedure of ["deleteFolder:", "deleteFile:", "renameFile:", "moveFile:", "getFile:"]) {
+  it("keeps destructive and remaining procedures authenticated", () => {
+    for (const procedure of ["deleteFolder:", "deleteFile:", "renameFile:", "getFile:"]) {
       const section = source.slice(source.indexOf(procedure), source.indexOf(procedure) + 200);
       expect(section, `${procedure} must stay authedQuery`).toContain("authedQuery");
     }

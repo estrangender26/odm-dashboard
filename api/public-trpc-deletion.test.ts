@@ -164,10 +164,16 @@ describe("BEHAVIORAL TESTS: tRPC destructive procedures", () => {
       await expect(caller.documents.renameFile({ id: 101, title: "x.pdf" })).rejects.toThrow(TRPCError);
     });
 
-    it("documents.moveFile rejects with UNAUTHORIZED", async () => {
+    it("documents.moveFile is intentionally NOT in the protected set (public O&M reorganization)", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
-      await expect(caller.documents.moveFile({ id: 101, folderId: 2 })).rejects.toThrow(TRPCError);
+      mocks.dbSelectResult = [{ id: 101 }];
+      mocks.dbUpdateResult = [{ id: 101, folderId: 2 }];
+
+      await expect(caller.documents.moveFile({ id: 101, folderId: 2 })).resolves.toMatchObject({
+        success: true,
+        file: { id: 101, folderId: 2 },
+      });
     });
 
     it("documents.moveFolder is intentionally NOT in the protected set (public O&M reorganization)", async () => {

@@ -922,12 +922,26 @@ export const documentsRouter = {
     }),
 
   // ── Move file to another folder ──
-  moveFile: authedQuery
-    .input(z.object({ id: z.number(), folderId: z.number() }))
+  // PERMISSION BOUNDARY (intentional, do not "fix"): moving a document between
+  // folders is non-destructive reorganization, like folder rename/move, and the
+  // library is used by people who never log in — so this stays publicQuery.
+  // Deletion (deleteFile/deleteFolder) and the remaining mutations (renameFile,
+  // getFile) must stay owner-only: do NOT propagate this relaxation to them.
+  moveFile: publicQuery
+    .input(z.object({ id: z.number().int().positive(), folderId: z.number().int().positive() }))
     .mutation(async ({ input }) => {
       try {
+        // Validation stays server-side and mandatory without a login: the
+        // destination must be an existing folder OF THIS LIBRARY and the source
+        // file must exist. Both checks run before the update, so a rejected move
+        // cannot partially mutate anything.
         await assertFolderExists(input.folderId, "Destination folder not found");
         await assertFileExists(input.id);
+        // Single-row, primary-key-scoped re-association. Only `folderId` (and the
+        // bookkeeping `updatedAt`) changes: the file keeps its id, title,
+        // filename, revision, tags and storage location, and no storage object is
+        // copied, moved or deleted. A file always lives in a folder
+        // (doc_files.folder_id is NOT NULL), so root is not a valid destination.
         const result = await db.update(docFiles).set({ folderId: input.folderId, updatedAt: new Date() }).where(eq(docFiles.id, input.id)).returning();
         if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "File not found" });
         return { success: true, file: result[0] };
