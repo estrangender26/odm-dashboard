@@ -197,13 +197,13 @@ describe("D. security regression — delete stays owner-only WITHOUT login", () 
   it("keeps every other mutation protected without login", async () => {
     const caller = anonymousCaller();
 
+    // Folder rename is public (this suite). Folder move is also public by a
+    // separate correction and is covered by om-manual-folder-move-authorization.
+    // Everything else in the library stays protected.
     await expect(caller.documents.renameFile({ id: 11, title: "renamed.pdf" })).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
     await expect(caller.documents.moveFile({ id: 11, folderId: 3 })).rejects.toMatchObject({
-      code: "UNAUTHORIZED",
-    });
-    await expect(caller.documents.moveFolder({ id: 4, parentId: null })).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
     await expect(caller.documents.getFile({ id: 11 })).rejects.toMatchObject({
@@ -338,11 +338,12 @@ describe("H. permission boundary stays narrow (source level)", () => {
   });
 
   it("keeps the destructive and unrelated mutations authenticated", () => {
+    // renameFolder and moveFolder are the only intentionally public mutations;
+    // moveFolder is covered by om-manual-folder-move-authorization.test.ts.
     for (const procedure of [
       "deleteFolder:",
       "deleteFile:",
       "renameFile:",
-      "moveFolder:",
       "moveFile:",
       "getFile:",
     ]) {

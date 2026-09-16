@@ -26,6 +26,10 @@ vi.mock("./queries/connection", () => ({
           };
           return chain;
         }),
+        // `from(...)` is awaited directly by whole-table loads (e.g. the folder
+        // hierarchy validated during a move), so it must be thenable too.
+        then: (resolve: (value: unknown[]) => unknown) =>
+          Promise.resolve(mocks.dbSelectResult as unknown[]).then(resolve),
       })),
     })),
     delete: vi.fn((table: any) => ({
@@ -166,10 +170,16 @@ describe("BEHAVIORAL TESTS: tRPC destructive procedures", () => {
       await expect(caller.documents.moveFile({ id: 101, folderId: 2 })).rejects.toThrow(TRPCError);
     });
 
-    it("documents.moveFolder rejects with UNAUTHORIZED", async () => {
+    it("documents.moveFolder is intentionally NOT in the protected set (public O&M reorganization)", async () => {
       const ctx = createUnauthCtx();
       const caller = deletionTestRouter.createCaller(ctx);
-      await expect(caller.documents.moveFolder({ id: 101, parentId: 2 })).rejects.toThrow(TRPCError);
+      mocks.dbSelectResult = [{ id: 101, parentId: null }, { id: 2, parentId: null }];
+      mocks.dbUpdateResult = [{ id: 101, parentId: 2 }];
+
+      await expect(caller.documents.moveFolder({ id: 101, parentId: 2 })).resolves.toMatchObject({
+        success: true,
+        folder: { id: 101, parentId: 2 },
+      });
     });
 
     it("governance.deleteUpload rejects with UNAUTHORIZED", async () => {

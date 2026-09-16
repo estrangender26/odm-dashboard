@@ -795,13 +795,28 @@ export const documentsRouter = {
     }),
 
   // ── Move folder ──
-  moveFolder: authedQuery
-    .input(z.object({ id: z.number(), parentId: z.number().nullable() }))
+  // PERMISSION BOUNDARY (intentional, do not "fix"): moving/reorganizing an
+  // O&M Manuals Library folder is a public, no-login operation, like rename.
+  // The library is used by people who never authenticate, and a folder move is
+  // non-destructive: it only re-parents one folder row. Destructive operations
+  // (deleteFolder/deleteFile) and the file-level mutations (moveFile,
+  // renameFile) must stay owner-only: do NOT propagate this relaxation to them,
+  // and do NOT replace it with a blanket "O&M module mutations are public" rule.
+  moveFolder: publicQuery
+    .input(z.object({ id: z.number().int().positive(), parentId: z.number().int().positive().nullable() }))
     .mutation(async ({ input }) => {
       try {
+        // Validation stays server-side and mandatory without a login:
+        // the source folder must exist, the destination must be an existing
+        // library folder (or root), a folder may not become its own parent, and
+        // a folder may not be moved into its own descendant — so the hierarchy
+        // can never become cyclic.
         const allFolders = await loadFoldersForValidation();
         if (!getFolderById(allFolders, input.id)) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
         validateFolderParent(allFolders, input.id, input.parentId);
+        // Single-row, primary-key-scoped re-parent. Only `parentId` changes: the
+        // folder id, its name, its files and its child folders all stay
+        // attached, and no other folder can be affected by the request.
         const result = await db.update(docFolders).set({ parentId: input.parentId, updatedAt: new Date() }).where(eq(docFolders.id, input.id)).returning();
         if (!result.length) throw new TRPCError({ code: "NOT_FOUND", message: "Folder not found" });
         return { success: true, folder: result[0] };
