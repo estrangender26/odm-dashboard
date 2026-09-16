@@ -439,21 +439,48 @@ describe("ODM containment — source-level regression guards", () => {
     expect(schemaColumns).toEqual(routerColumns);
   });
 
-  it("the frontend Clear control can no longer invoke the destructive endpoint", () => {
+  it("the Clear control no longer exists anywhere in the dashboard", () => {
     // No code path in the dashboard may call the OWNER-only endpoint.
     expect(dashboardSource).not.toContain("/mw.resetAll");
     expect(dashboardSource).not.toContain("resetAll");
     expect(dashboardSource).not.toContain("resetDatabase");
 
-    const clearBlock = /function clearLocalCopy\(\)[\s\S]*?\n}/.exec(dashboardSource);
-    expect(clearBlock, "clearLocalCopy() not found").not.toBeNull();
-    expect(clearBlock![0]).not.toContain("apiCall(");
-    expect(clearBlock![0]).toContain("localStorage.removeItem(LS_KEY)");
-    expect(clearBlock![0]).toContain("loadFromDatabase()");
+    // The control itself, its click handler and its local-clear plumbing are gone:
+    // the dashboard has no destructive or data-clearing affordance at all.
+    for (const removed of [
+      "clearDataBtn",
+      "clearStorage",
+      "clearLocalCopy",
+      "btn-ghost-warn",
+      "LS_FILENAME",
+    ]) {
+      expect(dashboardSource, `removed Clear plumbing must not reappear: ${removed}`).not.toContain(
+        removed,
+      );
+    }
 
-    // The control is honest about what it does.
-    expect(dashboardSource).toContain("Clear the inspection data cached in this browser only. Database records are never deleted by this control.");
-    expect(dashboardSource).toContain("This does NOT delete anything from the database.");
+    // The header's remaining actions are non-destructive: Refresh (read-only) and
+    // Ask AI. The only tRPC endpoints the dashboard can reach at all are the two
+    // non-destructive ones — a destructive call cannot be re-added by a button.
+    expect(dashboardSource).toContain('id="refreshBtn"');
+    expect(dashboardSource).toContain('id="askAiBtn"');
+
+    const calledEndpoints = [...dashboardSource.matchAll(/apiCall\(\s*'([^']+)'/g)]
+      .map((match) => match[1])
+      .sort();
+    expect(calledEndpoints).toEqual(["/mw.importExcel", "/mw.listInspections"]);
+
+    const refreshHandler = /document\.getElementById\('refreshBtn'\)\.addEventListener\([\s\S]*?\n\}\);/.exec(
+      dashboardSource,
+    );
+    expect(refreshHandler, "refreshBtn handler not found").not.toBeNull();
+    expect(refreshHandler![0]).toContain("loadFromDatabase()");
+    expect(refreshHandler![0]).not.toContain("apiCall(");
+
+    // Removing the button must not remove the offline/localStorage read fallback.
+    expect(dashboardSource).toContain("function loadFromStorage()");
+    expect(dashboardSource).toContain("function saveToStorage()");
+    expect(dashboardSource).toContain("const LS_KEY = 'mwc_odm_data';");
   });
 
   it("documents the chosen boundary, including the deliberate anonymous import decision", () => {

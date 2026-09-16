@@ -26,9 +26,14 @@ What the forensic investigation established:
 - `mw.resetAll` is a `DELETE FROM mw_inspections` **with no `WHERE` clause**, and
   the dashboard's **Clear** button called it.
 
-Attribution of the deletion (the Clear control vs. manual SQL) could not be
-concluded from the evidence available, which is itself the defect this document
-and the accompanying code change address.
+Read-only Render request logs then attributed the loss conclusively: exactly one
+`POST /api/trpc/mw.resetAll` in the retained window, at
+**2026-09-16T03:38:38.741Z, HTTP 200**, 7.5 seconds before twelve
+`POST /api/trpc/mw.importExcel` calls (03:38:46–03:38:59) re-created the
+surviving rows — all from a single anonymous browser session. Manual SQL is
+excluded, and `mw.deleteInspection` / `mw.updateInspection` were never called.
+The Clear control was therefore not merely a suspect; it was the mechanism, which
+is why it has been removed rather than re-pointed.
 
 ## 2. Declared authorization boundary
 
@@ -86,19 +91,35 @@ OWNER later decides the import path must also require an authenticated session,
 the change is a one-line policy swap to `authedQuery` plus a login affordance on
 the dashboard — deliberately **not** made now.
 
-## 4. Frontend Clear behaviour
+## 4. Frontend Clear control — removed entirely
 
-`Clear` previously: cleared `localStorage` **and** called `POST /api/trpc/mw.resetAll`.
+`Clear` previously cleared `localStorage` **and** called `POST /api/trpc/mw.resetAll`
+— the unauthenticated whole-table `DELETE` that destroyed the dataset on
+2026-09-16.
 
-`Clear` now (`clearLocalCopy()` in `public/mw-dashboard.html`):
+**The control no longer exists.** `public/mw-dashboard.html` has no Clear button,
+no click handler, no local-clear plumbing and no data-clearing affordance at all:
 
-1. asks for confirmation, stating that database records are **not** deleted;
-2. removes only this browser's cached copy (`odm_mw_rows`, `odm_mw_filename`);
-3. reloads the authoritative dataset from the database.
+| Removed | Was |
+| --- | --- |
+| `<button id="clearDataBtn">Clear</button>` (+ its `.btn-ghost-warn` styling) | the control itself |
+| `clearDataBtn` click listener | invoked the clear path |
+| `clearStorage()` / `clearLocalCopy()` | the local-clear logic |
+| `clearStorageUI()` | the empty-state teardown only that path used |
+| `LS_FILENAME` | a localStorage key written by nothing, cleared by nothing |
 
-The server endpoint is protected independently, so hiding or disabling the
-button is not relied upon as security: an anonymous `POST /api/trpc/mw.resetAll`
-returns `401` and performs zero database mutations.
+The header's remaining actions are non-destructive: **Refresh** (reloads from the
+database) and **Import Excel** / **Ask AI**. Refresh is the only control that
+acts on data, and it only reads.
+
+The offline `localStorage` read fallback (`LS_KEY`, `saveToStorage`,
+`loadFromStorage`), used when the API is unavailable, is deliberately retained —
+removing Clear did not remove the ability to view cached data.
+
+Removing the UI is **not** the security control: `mw.resetAll` remains
+`adminQuery` + typed confirmation + audited on the server, so an anonymous
+`POST /api/trpc/mw.resetAll` still returns `401` and performs zero database
+mutations, with or without any UI.
 
 ## 5. Auditability
 
@@ -134,6 +155,10 @@ LEVEL SECURITY` off.
 - Never add a whole-table `DELETE`/`TRUNCATE` to an ordinary operational
   workflow. If whole-dataset deletion is genuinely required again, it must be an
   OWNER-only, typed-confirmation, audited operation.
+- Never reintroduce a data-clearing control to `public/mw-dashboard.html`. The
+  dashboard has no Clear button, no `clearDataBtn`, no `clearLocalCopy`,
+  `clearStorage`, `clearStorageUI` or `LS_FILENAME`; the containment test fails
+  if any of them reappear.
 - Never perform a destructive ODM call against production to test containment;
   use `api/mw-router-fake-db.ts` or an isolated database.
 - Do not weaken `importExcel` to a destructive shape; it must stay upsert-only.

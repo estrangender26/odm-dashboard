@@ -34,13 +34,14 @@ Agent rule:
 ## Operator-Driven Maintenance — destructive operations are OWNER-only and audited
 
 Decision:
-The ODM (`mw.*`) inspection procedures have an explicit authorization boundary: reads (`listInspections`, `getInspection`) are anonymous; `importExcel` is deliberately anonymous because it is the module's only data-entry path and is upsert-only; `updateInspection` is `authedQuery`; `deleteInspection` and `resetAll` are OWNER-only (`adminQuery`), and `resetAll` additionally requires the exact typed phrase `DELETE ALL ODM INSPECTIONS`. The dashboard's Clear control no longer calls `mw.resetAll` — it clears only the browser's cached copy and reloads from the database. Every ODM write records an `mw_inspection_audit` row in the same transaction as the mutation.
+The ODM (`mw.*`) inspection procedures have an explicit authorization boundary: reads (`listInspections`, `getInspection`) are anonymous; `importExcel` is deliberately anonymous because it is the module's only data-entry path and is upsert-only; `updateInspection` is `authedQuery`; `deleteInspection` and `resetAll` are OWNER-only (`adminQuery`), and `resetAll` additionally requires the exact typed phrase `DELETE ALL ODM INSPECTIONS`. The dashboard's **Clear control has been removed entirely** — the page has no Clear button, no click handler and no local-clear plumbing, leaving Refresh (read-only) as its only control that acts on data. Every ODM write records an `mw_inspection_audit` row in the same transaction as the mutation.
 
 Context:
-On 2026-09-16 production `mw_inspections` dropped from 16,543 rows (measured 2026-09-11) to 2,372 rows. `mw.resetAll` was an unauthenticated `DELETE FROM mw_inspections` wired to the dashboard's Clear button, `deleteInspection`/`updateInspection` were public too, and no audit record of any operation existed. Full analysis: `docs/odm-inspection-authorization.md`.
+On 2026-09-16 production `mw_inspections` dropped from 16,543 rows (measured 2026-09-11) to 2,372 rows. Read-only Render logs attributed it to a single anonymous `POST /api/trpc/mw.resetAll` at 2026-09-16T03:38:38.741Z — `mw.resetAll` was then an unauthenticated `DELETE FROM mw_inspections` wired to the dashboard's Clear button, `deleteInspection`/`updateInspection` were public too, and no audit record of any operation existed. Full analysis: `docs/odm-inspection-authorization.md`.
 
 Agent rule:
 - Never regress a destructive ODM procedure to `publicQuery`; `api/mw-router-authorization.test.ts` fails if you do.
+- Never add a data-clearing control (Clear / Delete / Reset) to `public/mw-dashboard.html`; the containment test fails if `clearDataBtn`, `clearStorage`, `clearLocalCopy`, `clearStorageUI`, `LS_FILENAME` or `btn-ghost-warn` reappear.
 - Never add whole-table DELETE/TRUNCATE to an ordinary operational workflow. Whole-dataset deletion, if ever needed again, is an OWNER-only, typed-confirmation, audited operation.
 - Never test destructive containment against production; use `api/mw-router-fake-db.ts` or an isolated database.
 - `importExcel` must stay upsert-only. Making it authenticated is an OWNER decision (it requires a login affordance on the dashboard first).
