@@ -103,6 +103,7 @@ export type StatusingWarningCode =
   | "schedule-stale"
   | "progress-without-actual-start"
   | "completed-without-actual-start"
+  | "hundred-percent-without-actual-finish"
   | "actuals-after-data-date";
 
 export interface StatusingWarning {
@@ -167,6 +168,7 @@ export function summarizeStatusing(
 
   const progressWithoutStart: number[] = [];
   const completedWithoutStart: number[] = [];
+  const hundredWithoutFinish: number[] = [];
   const actualsAfterDataDate: number[] = [];
   const unfinishedEarlyFinish: Array<string | null> = [];
   const allEarlyFinish: Array<string | null> = [];
@@ -193,6 +195,12 @@ export function summarizeStatusing(
 
     // Data-quality signals. These are reported, never silently repaired: the
     // stored facts are the owner's record and this panel must not rewrite them.
+    // "100% but no Actual Finish" is the one in-progress state with no work
+    // left: the engine schedules it as zero duration, so the roll-up must say
+    // so rather than silently reporting it as ordinary work in progress.
+    if ((activity.percentComplete ?? 0) === 100 && !actualFinish) {
+      hundredWithoutFinish.push(activity.id);
+    }
     if ((activity.percentComplete ?? 0) > 0 && !actualStart) {
       if (lifecycle === "completed") completedWithoutStart.push(activity.id);
       else progressWithoutStart.push(activity.id);
@@ -238,6 +246,16 @@ export function summarizeStatusing(
           ? "1 completed activity has no recorded Actual Start."
           : `${completedWithoutStart.length} completed activities have no recorded Actual Start.`,
       activityIds: completedWithoutStart,
+    });
+  }
+  if (hundredWithoutFinish.length > 0) {
+    warnings.push({
+      code: "hundred-percent-without-actual-finish",
+      message:
+        hundredWithoutFinish.length === 1
+          ? "1 activity is recorded at 100% without an Actual Finish, so it is not treated as completed and has no remaining work."
+          : `${hundredWithoutFinish.length} activities are recorded at 100% without an Actual Finish, so they are not treated as completed and have no remaining work.`,
+      activityIds: hundredWithoutFinish,
     });
   }
   if (actualsAfterDataDate.length > 0) {

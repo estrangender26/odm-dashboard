@@ -139,6 +139,23 @@ describe("statusingModel — notices", () => {
     expect(warning!.message).toMatch(/no Actual Start/);
   });
 
+  it("flags 100% without an Actual Finish so it is not mistaken for completed", () => {
+    const summary = summarizeStatusing([row({ id: 11, percentComplete: 100, actualStart: "2026-01-05", earlyFinish: "2026-01-06" })], "2026-01-07");
+    const warning = summary.warnings.find((w) => w.code === "hundred-percent-without-actual-finish");
+    expect(warning?.activityIds).toEqual([11]);
+    expect(summary.completed).toBe(0);
+    expect(summary.totalRemainingDays).toBe(0); // the engine schedules it as zero duration
+  });
+
+  it("does not flag 100% once an Actual Finish is recorded", () => {
+    const summary = summarizeStatusing(
+      [row({ id: 12, percentComplete: 100, actualStart: "2026-01-05", actualFinish: "2026-01-06", earlyFinish: "2026-01-06" })],
+      "2026-01-07"
+    );
+    expect(summary.warnings.map((w) => w.code)).not.toContain("hundred-percent-without-actual-finish");
+    expect(summary.completed).toBe(1);
+  });
+
   it("flags a completed activity with no Actual Start separately", () => {
     const summary = summarizeStatusing([row({ id: 8, percentComplete: 100, actualFinish: "2026-01-06", earlyFinish: "2026-01-06" })], "2026-01-07");
     expect(summary.warnings.map((w) => w.code)).toContain("completed-without-actual-start");

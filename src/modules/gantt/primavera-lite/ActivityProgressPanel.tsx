@@ -4,13 +4,13 @@ import { Input } from "@/components/ui/input";
 import { formatDate } from "./activityGridModel";
 import {
   autoActualFinishFromDataDate,
-  deriveRemainingDuration,
   normalizeIsoDate,
   resolveProgress,
   type ProgressFields,
 } from "./progressModel";
 import {
   activityLifecycle,
+  forecastRemainingDays,
   LIFECYCLE_CHIP_CLASS,
   LIFECYCLE_LABELS,
 } from "./statusingModel";
@@ -112,11 +112,21 @@ export default function ActivityProgressPanel({
     actualFinish: resolvedFinish,
   });
 
-  const derivedRemaining = deriveRemainingDuration(
-    activity.originalDurationDays ?? 0,
-    resolvedPercent,
-    resolvedRemaining
-  );
+  // The hint must describe what the SCHEDULE will do, not what the storage
+  // helper computes: the engine treats a milestone as zero duration and a
+  // not-started activity as its full original duration, so the panel delegates
+  // to the same function the ActivityGrid Remaining column and Run Schedule use.
+  const derivedRemaining = forecastRemainingDays({
+    id: activity.id,
+    wbsNodeId: activity.wbsNodeId,
+    activityName: activity.activityName,
+    activityType: activity.activityType ?? null,
+    originalDurationDays: activity.originalDurationDays ?? 0,
+    remainingDurationDays: resolvedRemaining ?? undefined,
+    percentComplete: resolvedPercent,
+    actualStart: resolvedStart,
+    actualFinish: resolvedFinish,
+  });
 
   // Completing without a finish is auto-filled from the Data Date by the
   // server; say so up front (and surface the same error when no Data Date
@@ -205,7 +215,7 @@ export default function ActivityProgressPanel({
             aria-label="Remaining Duration (days)"
           />
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Blank = derive from % complete ({derivedRemaining} working day{derivedRemaining === 1 ? "" : "s"}).
+            Blank = let the schedule derive it ({derivedRemaining} working day{derivedRemaining === 1 ? "" : "s"} forecast).
           </p>
         </div>
       </div>

@@ -96,6 +96,17 @@ export default function ActivityGrid(props: Props) {
     }
   }, [props.verticalScrollTop]);
 
+  // If the activity being statused disappears (archived or removed elsewhere),
+  // close the panel and release the page's paused refresh instead of leaving
+  // editing state latched with no visible editor.
+  useEffect(() => {
+    if (progressActivityId == null) return;
+    if (props.activities.some((activity) => activity.id === progressActivityId)) return;
+    setProgressActivityId(null);
+    setProgressError(null);
+    props.onEditingChange(false);
+  }, [progressActivityId, props.activities]);
+
   function setCachedActivities(updater: (rows: ActivityGridRow[]) => ActivityGridRow[]) {
     utils.primaveraLite.load.setData(queryInput, (current) => current ? { ...current, activities: updater(current.activities) } : current);
   }
@@ -380,6 +391,8 @@ export default function ActivityGrid(props: Props) {
       {message && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">{message}{conflict && <span> Your attempted value is preserved; retry the highlighted edit.</span>}</div>}
       {progressActivity && (
         <ActivityProgressPanel
+          // Remount per activity: drafts must never carry over to another row.
+          key={progressActivity.id}
           activity={progressActivity}
           dataDate={props.dataDate}
           pending={updateProgress.isPending}

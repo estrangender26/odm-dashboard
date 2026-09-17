@@ -129,6 +129,20 @@ describe("ActivityProgressPanel — entry surface", () => {
     expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
   });
 
+  it("derives the blank-remaining hint from the engine so it matches the Remaining column", () => {
+    const cases: Array<[Partial<ActivityGridRow>, RegExp]> = [
+      [{ percentComplete: 25, originalDurationDays: 5 }, /\(4 working days forecast\)/],
+      [{ activityType: "milestone", originalDurationDays: 0, percentComplete: 50 }, /\(0 working days forecast\)/],
+      [{ percentComplete: 0, originalDurationDays: 5 }, /\(5 working days forecast\)/],
+      [{ percentComplete: 25, originalDurationDays: 5, remainingDurationDays: 2 }, /\(2 working days forecast\)/],
+    ];
+    for (const [row, expected] of cases) {
+      const { unmount } = render(<ActivityProgressPanel {...props({ activity: makeRow(row) })} />);
+      expect(screen.getByText(expected)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
   it("cancels without saving", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();

@@ -317,3 +317,51 @@ describe("ActivityGrid statusing surface", () => {
     expect(screen.queryByRole("button", { name: /Update progress for Archived Activity/ })).not.toBeInTheDocument();
   });
 });
+
+describe("ActivityGrid progress editing state", () => {
+  afterEach(() => cleanup());
+
+  it("releases the paused refresh when the edited activity disappears", async () => {
+    const onEditingChange = vi.fn();
+    const baseProps = {
+      slug: "test-project",
+      access: "test-token",
+      role: "editor" as const,
+      expectedRevision: 3,
+      wbsNodes,
+      calendars,
+      onRevisionChange: () => undefined,
+      onRefresh: async () => undefined,
+      onEditingChange,
+    };
+    const { rerender } = render(
+      <ActivityGrid {...baseProps} activities={[makeRow(1)]} />
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Update progress for Activity 1" }));
+    expect(onEditingChange).toHaveBeenLastCalledWith(true);
+    expect(screen.getByTestId("activity-progress-panel")).toBeInTheDocument();
+
+    // The row is archived/removed elsewhere while the panel is open.
+    rerender(<ActivityGrid {...baseProps} activities={[]} />);
+    expect(onEditingChange).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByTestId("activity-progress-panel")).not.toBeInTheDocument();
+  });
+});
+
+describe("ActivityGrid progress panel scoping", () => {
+  afterEach(() => cleanup());
+
+  it("never carries typed progress from one activity to another", async () => {
+    renderGrid("editor", [makeRow(1, { percentComplete: 10 }), makeRow(2, { percentComplete: 60 })]);
+    await userEvent.click(screen.getByRole("button", { name: "Update progress for Activity 1" }));
+    const percent = screen.getByLabelText("Percent Complete");
+    await userEvent.clear(percent);
+    await userEvent.type(percent, "70");
+    expect(screen.getByLabelText("Percent Complete")).toHaveValue(70);
+
+    // Open a different activity: the editor must show that activity's own facts.
+    await userEvent.click(screen.getByRole("button", { name: "Update progress for Activity 2" }));
+    expect(screen.getByLabelText("Percent Complete")).toHaveValue(60);
+    expect(screen.getByLabelText("Actual Start")).toHaveValue("");
+  });
+});
