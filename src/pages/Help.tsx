@@ -119,22 +119,22 @@ const HELP_CONTEXT = {
 
 export default function Help() {
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#F8FAFC', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: '#F5F9FA', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
       {/* Header */}
-      <header style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 50%, #16324F 100%)', color: '#fff', boxShadow: '0 4px 12px rgba(22,50,79,0.10)' }}>
+      <header style={{ background: 'var(--pe-white)', color: 'var(--pe-text)', boxShadow: 'var(--pe-shadow-xs)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
-            <ProgramsEngineeringLogo size={72} borderRadius={8} />
+          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit' }}>
+            <ProgramsEngineeringLogo size={72} borderRadius={8} tight />
             <div>
-              <h1 className="text-sm sm:text-[15px] font-bold" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
-              <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Help & User Guide</span>
+              <h1 className="pe-header-title">Program Oversight Center</h1>
+              <span className="pe-header-sub block">Help & User Guide</span>
             </div>
           </Link>
         </div>
       </header>
 
       {/* Hero */}
-      <div style={{ background: 'linear-gradient(135deg, #16324F 0%, #0D2137 100%)', color: '#fff' }}>
+      <div style={{ background: 'linear-gradient(135deg, #1B2830 0%, #1B2830 100%)', color: '#fff' }}>
         <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 24px' }}>
           <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Help & User Guide</h2>
           <p style={{ fontSize: 13, opacity: 0.7, maxWidth: 600 }}>
@@ -153,7 +153,7 @@ export default function Help() {
       <main style={{ maxWidth: 900, margin: '0 auto', padding: '24px 16px 40px' }} className="sm:!px-6 flex-1">
 
         {/* AI Feature Highlight */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm mb-6" style={{ borderLeft: '4px solid #0066A6' }}>
+        <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 shadow-sm mb-6" style={{ borderLeft: '4px solid #1878B3' }}>
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#F0F4FF' }}>🤖</div>
             <div>
@@ -252,7 +252,7 @@ export default function Help() {
         </div>
       </main>
 
-      <footer style={{ borderTop: '1px solid #D6DFE8', padding: '20px', textAlign: 'right', fontSize: 12, color: '#5A6B7D' }}>
+      <footer style={{ borderTop: '1px solid #DCE6EA', padding: '20px', textAlign: 'right', fontSize: 12, color: '#56636B' }}>
         Program Oversight Center &copy; 2026
       </footer>
 

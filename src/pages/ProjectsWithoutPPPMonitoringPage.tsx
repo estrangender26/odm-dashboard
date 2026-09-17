@@ -76,7 +76,7 @@ function StatusBadge({ status }: { status: "submitted" | "not_submitted" }) {
     >
       <span
         className="w-1.5 h-1.5 rounded-full"
-        style={{ background: submitted ? "#059669" : "#D97706" }}
+        style={{ background: submitted ? "#0F9D6B" : "#C2740A" }}
       />
       {SUBMISSION_STATUS_LABELS[status]}
     </span>
@@ -90,20 +90,20 @@ function KpiCard({ label, value, sub, tone }: {
   tone: "navy" | "green" | "amber" | "blue";
 }) {
   const tones: Record<string, { bg: string; text: string; bar: string }> = {
-    navy: { bg: "rgba(11,29,68,0.06)", text: "#0B1D44", bar: "#16324F" },
-    green: { bg: "rgba(5,150,105,0.08)", text: "#047857", bar: "#059669" },
-    amber: { bg: "rgba(217,119,6,0.08)", text: "#B45309", bar: "#D97706" },
-    blue: { bg: "rgba(0,91,172,0.08)", text: "#005BAC", bar: "#005BAC" },
+    navy: { bg: "rgba(11,29,68,0.06)", text: "#1B2830", bar: "#1B2830" },
+    green: { bg: "rgba(5,150,105,0.08)", text: "#047857", bar: "#0F9D6B" },
+    amber: { bg: "rgba(217,119,6,0.08)", text: "#B45309", bar: "#C2740A" },
+    blue: { bg: "rgba(0,91,172,0.08)", text: "#258AC1", bar: "#258AC1" },
   };
   const t = tones[tone];
   return (
     <div
       className="rounded-xl border p-4 flex flex-col gap-1 min-w-0"
-      style={{ background: "#FFFFFF", borderColor: "#D6DFE8", boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}
+      style={{ background: "#FFFFFF", borderColor: "#DCE6EA", boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}
     >
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-[#5A6B7D] truncate">{label}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-[#56636B] truncate">{label}</span>
       <span className="text-2xl font-extrabold leading-none" style={{ color: t.text }}>{value}</span>
-      {sub ? <span className="text-[11px] text-[#8BA3B8]">{sub}</span> : <span className="text-[11px] text-transparent select-none">·</span>}
+      {sub ? <span className="text-[11px] text-[#7C8A93]">{sub}</span> : <span className="text-[11px] text-transparent select-none">·</span>}
       <div className="mt-1 h-1 rounded-full" style={{ background: t.bg }}>
         <div className="h-1 rounded-full" style={{ width: "100%", background: t.bar }} />
       </div>
@@ -135,12 +135,12 @@ function FilterSelect({ label, value, options, onChange }: {
   const normalized = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
   return (
     <label className="flex flex-col gap-0.5 min-w-[130px]">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8BA3B8]">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#7C8A93]">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="text-xs border rounded-lg px-2 py-1.5 bg-white text-[#0B1D44] focus:outline-none focus:ring-1 focus:ring-[#005BAC]"
-        style={{ borderColor: "#D6DFE8" }}
+        className="text-xs border rounded-lg px-2 py-1.5 bg-white text-[#1B2830] focus:outline-none focus:ring-1 focus:ring-[#258AC1]"
+        style={{ borderColor: "#DCE6EA" }}
       >
         <option value="">All</option>
         {normalized.map((o) => (
@@ -475,20 +475,20 @@ export default function ProjectsWithoutPPPMonitoringPage() {
   return (
     <div className="odm-canvas min-h-screen" style={{ fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif" }}>
       {/* Header */}
-      <header style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)", color: "#fff", position: "sticky", top: 0, zIndex: 100, boxShadow: "var(--odm-shadow-sm)" }}>
+      <header style={{ background: "var(--pe-white)", color: "var(--pe-text)", position: "sticky", top: 0, zIndex: 100, boxShadow: "var(--odm-shadow-sm)" }}>
         <div style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, textDecoration: "none", color: "inherit" }}>
-            <ProgramsEngineeringLogo size={56} borderRadius={8} />
+          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, textDecoration: "none", color: "inherit" }}>
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: "-0.2px", lineHeight: 1.2 }}>
+              <h1 className="pe-header-title truncate">
                 {MODULE_TITLE}
               </h1>
-              <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: "uppercase", letterSpacing: "1.5px" }}>
+              <span className="pe-header-sub block">
                 Monitoring
               </span>
             </div>
           </Link>
-          <Link to="/" className="text-xs font-medium px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition">
+          <Link to="/" className="text-xs font-medium px-3 py-1.5 bg-pe-blue-soft border border-pe-blue-border rounded-lg text-pe-blue-ink hover:bg-pe-blue-border transition">
             ← Dashboard Suite
           </Link>
         </div>
@@ -508,18 +508,18 @@ export default function ProjectsWithoutPPPMonitoringPage() {
         </section>
 
         {/* Filters */}
-        <section className="rounded-xl border p-4 mb-4" style={{ background: "#FFFFFF", borderColor: "#D6DFE8" }}>
+        <section className="rounded-xl border p-4 mb-4" style={{ background: "#FFFFFF", borderColor: "#DCE6EA" }}>
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-            <h2 className="text-sm font-bold text-[#0B1D44]">Projects without PPP — Masterdata Submittal</h2>
+            <h2 className="text-sm font-bold text-[#1B2830]">Projects without PPP — Masterdata Submittal</h2>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[#5A6B7D]">
+              <span className="text-[11px] text-[#56636B]">
                 Showing {filteredRows.length} of {allRows.length} projects
               </span>
               <button
                 type="button"
                 onClick={clearFilters}
-                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border hover:bg-gray-50 text-[#5A6B7D]"
-                style={{ borderColor: "#D6DFE8" }}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border hover:bg-gray-50 text-[#56636B]"
+                style={{ borderColor: "#DCE6EA" }}
               >
                 Clear filters
               </button>
@@ -527,14 +527,14 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           </div>
           <div className="flex gap-3 flex-wrap items-end">
             <label className="flex flex-col gap-0.5 flex-1 min-w-[220px] max-w-[340px]">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8BA3B8]">Search</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#7C8A93]">Search</span>
               <input
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Tracking ID, PS Code, project name, contractor…"
-                className="text-xs border rounded-lg px-2.5 py-1.5 bg-white text-[#0B1D44] focus:outline-none focus:ring-1 focus:ring-[#005BAC]"
-                style={{ borderColor: "#D6DFE8" }}
+                className="text-xs border rounded-lg px-2.5 py-1.5 bg-white text-[#1B2830] focus:outline-none focus:ring-1 focus:ring-[#258AC1]"
+                style={{ borderColor: "#DCE6EA" }}
               />
             </label>
             <FilterSelect
@@ -565,16 +565,16 @@ export default function ProjectsWithoutPPPMonitoringPage() {
         </section>
 
         {/* Monitoring table */}
-        <section className="rounded-xl border overflow-hidden" style={{ background: "#FFFFFF", borderColor: "#D6DFE8" }}>
+        <section className="rounded-xl border overflow-hidden" style={{ background: "#FFFFFF", borderColor: "#DCE6EA" }}>
           <div className="max-h-[65vh] overflow-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
-                <tr style={{ background: "#F8FAFC" }}>
+                <tr style={{ background: "#F5F9FA" }}>
                   {TABLE_HEADERS.map((h, index) => (
                     <th
                       key={h.key}
-                      className={`px-3 py-2.5 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] whitespace-nowrap border-b sticky top-0 ${index === 0 ? "sticky left-0 z-30" : "z-20"}`}
-                      style={{ minWidth: h.minWidth, borderColor: "#E2E8F0", background: index === 0 ? "#F8FAFC" : "#F8FAFC" }}
+                      className={`px-3 py-2.5 font-bold text-[10px] uppercase tracking-wide text-[#56636B] whitespace-nowrap border-b sticky top-0 ${index === 0 ? "sticky left-0 z-30" : "z-20"}`}
+                      style={{ minWidth: h.minWidth, borderColor: "#DCE6EA", background: index === 0 ? "#F5F9FA" : "#F5F9FA" }}
                     >
                       {h.label}
                     </th>
@@ -600,9 +600,9 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                       key={row.id}
                       style={{ borderTop: "1px solid #EFF3F7" }}
                     >
-                      <td className="px-3 py-2.5 font-bold text-[#005BAC] whitespace-nowrap sticky left-0 z-10" style={{ background: "#FFFFFF" }}>{row.trackingId}</td>
+                      <td className="px-3 py-2.5 font-bold text-[#258AC1] whitespace-nowrap sticky left-0 z-10" style={{ background: "#FFFFFF" }}>{row.trackingId}</td>
                       <td className="px-3 py-2.5"><StatusBadge status={row.status} /></td>
-                      <td className="px-3 py-2.5 text-[#0B1D44] font-semibold min-w-[220px]">{row.projectName || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#1B2830] font-semibold min-w-[220px]">{row.projectName || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span
                           className="px-2 py-0.5 rounded-full text-[10px] font-bold"
@@ -617,14 +617,14 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.projectManager || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.constructionManager || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.amdGridHead || "—"}</td>
-                      <td className="px-3 py-2.5 text-center font-bold text-[#0B1D44]">{row.fileCount}</td>
-                      <td className="px-3 py-2.5 text-[#475569] whitespace-nowrap">
+                      <td className="px-3 py-2.5 text-center font-bold text-[#1B2830]">{row.fileCount}</td>
+                      <td className="px-3 py-2.5 text-[#56636B] whitespace-nowrap">
                         {row.latestSubmission ? (
                           <span className="flex flex-col gap-0.5">
-                            <span className="font-semibold text-[#0B1D44] max-w-[180px] truncate" title={row.latestSubmission.fileName}>
+                            <span className="font-semibold text-[#1B2830] max-w-[180px] truncate" title={row.latestSubmission.fileName}>
                               {row.latestSubmission.fileName}
                             </span>
-                            <span className="text-[10px] text-[#8BA3B8]">{formatDateTime(row.latestSubmission.submittedAt)}</span>
+                            <span className="text-[10px] text-[#7C8A93]">{formatDateTime(row.latestSubmission.submittedAt)}</span>
                           </span>
                         ) : (
                           "—"
@@ -633,8 +633,8 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                       <td className="px-3 py-2.5 whitespace-nowrap">{submitterLabel(row)}</td>
                       <td className="px-3 py-2.5 text-[#334155] whitespace-nowrap">{row.psCode}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.majorProjectTag || "—"}</td>
-                      <td className="px-3 py-2.5 text-[#475569] min-w-[200px]">{row.contractor || "—"}</td>
-                      <td className="px-3 py-2.5 text-[#475569] min-w-[200px]">{row.workPackage || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#56636B] min-w-[200px]">{row.contractor || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#56636B] min-w-[200px]">{row.workPackage || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.withLSPs ? LS_PS_LABELS.yes : LS_PS_LABELS.no}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5">
@@ -642,7 +642,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                             type="button"
                             onClick={() => handleRowUpload(row.id)}
                             className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-white hover:opacity-90"
-                            style={{ background: row.status === "submitted" ? "#005BAC" : "#D97706" }}
+                            style={{ background: row.status === "submitted" ? "#258AC1" : "#C2740A" }}
                           >
                             Upload
                           </button>
@@ -650,7 +650,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                             type="button"
                             onClick={() => openHistory(row.id)}
                             className="px-2.5 py-1 rounded-lg text-[11px] font-bold border hover:bg-gray-50"
-                            style={{ borderColor: "#D6DFE8", color: "#005BAC" }}
+                            style={{ borderColor: "#DCE6EA", color: "#258AC1" }}
                           >
                             View History
                           </button>
@@ -678,29 +678,29 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           </DialogHeader>
 
           {/* Selected project context */}
-          <div className="flex flex-col gap-1 text-xs text-[#0B1D44]">
+          <div className="flex flex-col gap-1 text-xs text-[#1B2830]">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[#5A6B7D]">Project</span>
+              <span className="text-[#56636B]">Project</span>
               <span className="font-semibold text-right">{detailProject?.projectName ?? "—"}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[#5A6B7D]">Tracking ID</span>
+              <span className="text-[#56636B]">Tracking ID</span>
               <span className="font-semibold">{detailProject?.trackingId ?? "—"}</span>
             </div>
           </div>
 
           {/* Allowed formats / size */}
-          <p className="text-xs text-[#5A6B7D]">
+          <p className="text-xs text-[#56636B]">
             Allowed formats: Excel (.xlsx, .xls) and PDF (.pdf). Maximum file size: 150 MB.
           </p>
-          <p className="text-xs text-[#5A6B7D]">
+          <p className="text-xs text-[#56636B]">
             No account required. The project will be marked Submitted after the upload is finalized.
           </p>
 
           {/* File picker / drop area */}
           <label
             className="block rounded-xl border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors hover:bg-gray-50"
-            style={{ borderColor: selectedFile ? "#059669" : "#CBD5E1", background: "#F8FAFC" }}
+            style={{ borderColor: selectedFile ? "#0F9D6B" : "#C2D4DB", background: "#F5F9FA" }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -719,11 +719,11 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             />
             {selectedFile ? (
               <span className="flex flex-col items-center gap-1">
-                <span className="text-sm font-bold text-[#0B1D44] break-all">{selectedFile.name}</span>
-                <span className="text-xs text-[#5A6B7D]">{formatFileSize(selectedFile.size)}</span>
+                <span className="text-sm font-bold text-[#1B2830] break-all">{selectedFile.name}</span>
+                <span className="text-xs text-[#56636B]">{formatFileSize(selectedFile.size)}</span>
               </span>
             ) : (
-              <span className="text-xs text-[#5A6B7D]">
+              <span className="text-xs text-[#56636B]">
                 Click to choose a file or drag &amp; drop it here
               </span>
             )}
@@ -739,13 +739,13 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           {/* Upload progress */}
           {isUploading && (
             <div className="flex flex-col gap-1">
-              <div className="text-xs text-[#5A6B7D]">{uploadLabel}</div>
+              <div className="text-xs text-[#56636B]">{uploadLabel}</div>
               <div className="h-2 rounded-full overflow-hidden bg-gray-200">
                 <div
                   className="h-full rounded-full transition-all duration-300 ease-out"
                   style={{
                     width: `${Math.min(100, Math.max(5, uploadProgress))}%`,
-                    background: "linear-gradient(90deg, #2563EB 0%, #3B82F6 50%, #2563EB 100%)",
+                    background: "linear-gradient(90deg, #258AC1 0%, #3B82F6 50%, #258AC1 100%)",
                   }}
                 />
               </div>
@@ -757,8 +757,8 @@ export default function ProjectsWithoutPPPMonitoringPage() {
               type="button"
               onClick={() => onUploadModalOpenChange(false)}
               disabled={isUploading}
-              className="px-4 py-2 rounded-lg text-xs font-bold text-[#5A6B7D] border hover:bg-gray-50 disabled:opacity-50"
-              style={{ borderColor: "#D6DFE8" }}
+              className="px-4 py-2 rounded-lg text-xs font-bold text-[#56636B] border hover:bg-gray-50 disabled:opacity-50"
+              style={{ borderColor: "#DCE6EA" }}
             >
               Cancel
             </button>
@@ -767,7 +767,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
               onClick={() => void startUpload()}
               disabled={!selectedFile || isUploading}
               className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
-              style={{ background: "#005BAC" }}
+              style={{ background: "#258AC1" }}
             >
               {isUploading ? "Uploading…" : "Upload"}
             </button>
@@ -790,13 +790,13 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
-                <tr style={{ background: "#F8FAFC" }}>
-                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>File Name</th>
-                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Status</th>
-                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Submitted By</th>
-                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Submitted At</th>
-                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>File Size</th>
-                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#5A6B7D] border-b" style={{ borderColor: "#E2E8F0" }}>Actions</th>
+                <tr style={{ background: "#F5F9FA" }}>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>File Name</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>Status</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>Submitted By</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>Submitted At</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>File Size</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -811,24 +811,24 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                 ) : (
                   sortedHistoryFiles.map((file) => (
                     <tr key={file.id} style={{ borderTop: "1px solid #EFF3F7" }}>
-                      <td className="px-3 py-2 font-semibold text-[#0B1D44] max-w-[240px]">
+                      <td className="px-3 py-2 font-semibold text-[#1B2830] max-w-[240px]">
                         <span className="block truncate" title={file.fileName}>{file.fileName}</span>
                       </td>
                       <td className="px-3 py-2">
                         {file.current ? (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#D1FAE5", color: "#047857" }}>Current</span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#E2E8F0", color: "#475569" }}>Superseded</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#DCE6EA", color: "#56636B" }}>Superseded</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-[#475569]">{file.uploadedBy || "—"}</td>
-                      <td className="px-3 py-2 text-[#475569] whitespace-nowrap">{formatDateTime(file.submittedAt)}</td>
-                      <td className="px-3 py-2 text-[#475569]">{formatFileSize(file.fileSize)}</td>
+                      <td className="px-3 py-2 text-[#56636B]">{file.uploadedBy || "—"}</td>
+                      <td className="px-3 py-2 text-[#56636B] whitespace-nowrap">{formatDateTime(file.submittedAt)}</td>
+                      <td className="px-3 py-2 text-[#56636B]">{formatFileSize(file.fileSize)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <a
                             href={storageFileUrl(STORAGE_SOURCE, file.id, "download")}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-[#005BAC] hover:bg-blue-100 inline-block"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-[#258AC1] hover:bg-blue-100 inline-block"
                           >
                             ⬇ Download
                           </a>
@@ -862,13 +862,13 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="text-xs text-[#0B1D44] space-y-1">
+          <div className="text-xs text-[#1B2830] space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[#5A6B7D]">File</span>
+              <span className="text-[#56636B]">File</span>
               <span className="font-semibold text-right break-all">{deleteTarget?.fileName ?? "—"}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[#5A6B7D]">Project</span>
+              <span className="text-[#56636B]">Project</span>
               <span className="font-semibold text-right">
                 {detailProject ? `${detailProject.projectName ?? ""} (${detailProject.trackingId})` : "—"}
               </span>
@@ -889,8 +889,8 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             <button
               type="button"
               onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
-              className="px-4 py-2 rounded-lg text-xs font-bold text-[#5A6B7D] border hover:bg-gray-50"
-              style={{ borderColor: "#D6DFE8" }}
+              className="px-4 py-2 rounded-lg text-xs font-bold text-[#56636B] border hover:bg-gray-50"
+              style={{ borderColor: "#DCE6EA" }}
             >
               Cancel
             </button>
@@ -899,7 +899,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
               onClick={confirmDelete}
               disabled={deleteFileMut.isPending || adminDeleteFileMut.isPending}
               className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
-              style={{ background: "#DC2626" }}
+              style={{ background: "#D0342F" }}
             >
               Delete File
             </button>

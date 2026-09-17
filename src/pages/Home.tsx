@@ -92,24 +92,24 @@ export default function Home() {
   return (
     <div className="odm-canvas min-h-screen" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
       {/* Programs Header */}
-      <header style={{ background: 'linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)', color: '#fff', position: 'sticky', top: 0, zIndex: 100, borderBottom: '1px solid rgba(255,255,255,.08)', boxShadow: 'var(--odm-shadow-sm)' }}>
+      <header style={{ background: 'var(--pe-white)', color: 'var(--pe-text)', position: 'sticky', top: 0, zIndex: 100, borderBottom: '1px solid var(--pe-border)', boxShadow: 'var(--odm-shadow-sm)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <Link to="/" onClick={handleOwnerLogoClick} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
-            <ProgramsEngineeringLogo size={72} borderRadius={8} />
+          <Link to="/" onClick={handleOwnerLogoClick} style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
+            <ProgramsEngineeringLogo size={72} borderRadius={8} tight />
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
-              <span className="text-[10px] block mt-0.5 opacity-55" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Programs</span>
+              <h1 className="pe-header-title truncate">Program Oversight Center</h1>
+              <span className="pe-header-sub block" style={{ color: 'var(--pe-blue)' }}>Programs Engineering</span>
             </div>
           </Link>
           <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-            <Link to="/help" className="text-xs font-medium px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition">Help</Link>
+            <Link to="/help" className="text-xs font-medium px-3 py-1.5 bg-pe-blue-soft border border-pe-blue-border rounded-lg text-pe-blue-ink hover:bg-pe-blue-border transition">Help</Link>
             {isAuthenticated && user && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
                     aria-label="Account menu"
-                    className="flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 hover:bg-white/10 transition cursor-pointer"
+                    className="flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 hover:bg-pe-blue-soft transition cursor-pointer"
                   >
                     <img src={user.avatar || undefined} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />
                     <span className="hidden sm:inline max-w-[100px] truncate">{user.name}</span>
@@ -138,7 +138,7 @@ export default function Home() {
         {/* Sub-header */}
         <div style={{ marginBottom: 32 }}>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--odm-text-strong)', letterSpacing: '-0.3px', marginBottom: 4 }}>Dashboard Suite</h2>
-          <p style={{ fontSize: 13, color: '#5A6B7D' }}>Select a dashboard to access your O&M management tools</p>
+          <p style={{ fontSize: 13, color: '#56636B' }}>Select a dashboard to access your O&M management tools</p>
         </div>
 
         {/* Dashboard Cards */}

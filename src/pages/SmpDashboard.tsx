@@ -277,13 +277,13 @@ export default function SmpDashboard() {
       )}
 
       {/* Header */}
-      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)", borderBottom: "1px solid rgba(255,255,255,.08)", boxShadow: "var(--odm-shadow-sm)" }}>
+      <header className="flex-shrink-0" style={{ background: "var(--pe-white)", borderBottom: "1px solid var(--pe-border)", boxShadow: "var(--odm-shadow-sm)" }}>
         <div className="flex items-center justify-between px-4 py-3">
-          <Link to="/" className="flex items-center gap-3 no-underline text-white">
-            <ProgramsEngineeringLogo size={72} borderRadius={8} />
+          <Link to="/" className="flex items-center gap-3 no-underline text-pe-text-strong">
+            <ProgramsEngineeringLogo size={72} borderRadius={8} tight />
             <div>
-              <h1 className="text-lg font-bold leading-tight">Standard Maintenance Procedures</h1>
-              <p className="text-xs opacity-55" style={{ letterSpacing: "1px", textTransform: "uppercase" }}>
+              <h1 className="pe-header-title">Standard Maintenance Procedures</h1>
+              <p className="pe-header-sub">
                 Controlled Engineering Document Library
               </p>
             </div>
@@ -291,17 +291,17 @@ export default function SmpDashboard() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => openUpload("new")}
-              className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded text-xs font-semibold hover:bg-white/20 flex items-center gap-1"
+              className="pe-btn pe-btn--primary text-xs px-3 py-1.5 flex items-center gap-1"
             >
               <Upload size={14} aria-hidden="true" /> Upload SMP PDF
             </button>
             <button
               onClick={handleExport}
-              className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded text-xs font-semibold hover:bg-white/20 flex items-center gap-1"
+              className="pe-btn pe-btn--secondary text-xs px-3 py-1.5 flex items-center gap-1"
             >
               <Download size={14} aria-hidden="true" /> Export
             </button>
-            <div className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-center">
+            <div className="bg-pe-blue-soft border border-pe-blue-border rounded-lg px-3 py-2 text-center">
               <div className="text-lg font-bold">{listQuery.data?.total ?? 0}</div>
               <div className="text-[0.6rem] uppercase opacity-70">Docs</div>
             </div>

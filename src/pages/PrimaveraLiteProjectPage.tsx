@@ -138,9 +138,9 @@ export default function PrimaveraLiteProjectPage() {
   return (
     <div className="odm-canvas min-h-screen">
       <header
-        className="text-white sticky top-0 z-50"
+        className="sticky top-0 z-50"
         style={{
-          background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)",
+          background: "var(--pe-white)",
           boxShadow: "var(--odm-shadow-sm)",
         }}
       >
@@ -149,15 +149,15 @@ export default function PrimaveraLiteProjectPage() {
             to="/"
             aria-label="Dashboard Home"
             title="Dashboard Home"
-            className="flex items-center gap-3 text-white no-underline"
+            className="flex items-center gap-3 text-pe-text-strong no-underline"
           >
-            <ProgramsEngineeringLogo size={56} borderRadius={8} />
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
             <div className="min-w-0">
-              <h1 className="text-base font-bold leading-tight sm:text-lg truncate">{data.project?.name || slug}</h1>
-              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Primavera Lite</p>
+              <h1 className="pe-header-title truncate">{data.project?.name || slug}</h1>
+              <p className="pe-header-sub">Primavera Lite</p>
             </div>
           </Link>
-          <div className="flex items-center gap-2 text-xs text-white/80">
+          <div className="flex items-center gap-2 text-xs text-pe-text-muted">
             <span className="hidden sm:inline">Role: {data.role}</span>
             <span className="hidden sm:inline">Revision: {data.revision}</span>
           </div>

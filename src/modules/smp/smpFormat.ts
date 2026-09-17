@@ -24,20 +24,26 @@ export function formatSmpDate(value: string | Date | null | undefined): string {
 }
 
 export function revisionStatusBadge(status: SmpStatus | string | null) {
-  if (status === "current") return { bg: "#D1FAE5", text: "#047857", label: "Current" };
-  if (status === "superseded") return { bg: "#E2E8F0", text: "#475569", label: "Superseded" };
-  return { bg: "#E2E8F0", text: "#475569", label: status || "—" };
+  // Programs Engineering semantic tokens (labels unchanged). These carry real
+  // operational meaning, so they keep success / neutral semantics — only the
+  // hues are aligned with the suite, and the `-ink` values keep small badge
+  // text at WCAG AA on the pale backgrounds.
+  if (status === "current")
+    return { bg: "var(--pe-success-bg)", text: "var(--pe-success-ink)", label: "Current" };
+  if (status === "superseded")
+    return { bg: "var(--pe-neutral-bg)", text: "var(--pe-neutral-ink)", label: "Superseded" };
+  return { bg: "var(--pe-neutral-bg)", text: "var(--pe-neutral-ink)", label: status || "—" };
 }
 
 /** Legacy document-level status colors (kept for backward-compatible rows). */
 export function legacyStatusBadge(status: string | null | undefined) {
   const map: Record<string, { bg: string; text: string; label: string }> = {
-    "Active": { bg: "#D1FAE5", text: "#059669", label: "Active" },
-    "Under Review": { bg: "#FEF3C7", text: "#D97706", label: "Under Review" },
-    "Expired": { bg: "#FEE2E2", text: "#DC2626", label: "Expired" },
-    "Draft": { bg: "#E2E8F0", text: "#475569", label: "Draft" },
+    "Active": { bg: "var(--pe-success-bg)", text: "var(--pe-success-ink)", label: "Active" },
+    "Under Review": { bg: "var(--pe-warning-bg)", text: "var(--pe-warning-ink)", label: "Under Review" },
+    "Expired": { bg: "var(--pe-danger-bg)", text: "var(--pe-danger-ink)", label: "Expired" },
+    "Draft": { bg: "var(--pe-neutral-bg)", text: "var(--pe-neutral-ink)", label: "Draft" },
   };
-  const fallback = { bg: "#F1F5F9", text: "#64748B", label: status || "—" };
+  const fallback = { bg: "var(--pe-neutral-bg)", text: "var(--pe-neutral-ink)", label: status || "—" };
   return map[status || ""] || fallback;
 }
 

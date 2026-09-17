@@ -91,7 +91,7 @@ function ProgressOverlay({ visible, label, sublabel, progress }: { visible: bool
             className="h-full rounded-full transition-all duration-300 ease-out"
             style={{
               width: progress !== undefined ? `${Math.min(100, Math.max(5, progress))}%` : "60%",
-              background: "linear-gradient(90deg, #2563EB 0%, #3B82F6 50%, #2563EB 100%)",
+              background: "linear-gradient(90deg, #258AC1 0%, #3B82F6 50%, #258AC1 100%)",
               backgroundSize: "200% 100%",
               animation: progress !== undefined ? "none" : "progressShimmer 1.5s ease-in-out infinite",
             }}
@@ -1117,21 +1117,21 @@ export default function OmManualsLibrary() {
       <ProgressOverlay visible={isDownloading} label={downloadLabel || "Downloading..."} sublabel="Fetching file from server" />
 
       {/* Header */}
-      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)", borderBottom: "1px solid rgba(255,255,255,.08)", boxShadow: "var(--odm-shadow-sm)" }}>
+      <header className="flex-shrink-0" style={{ background: "var(--pe-white)", borderBottom: "1px solid var(--pe-border)", boxShadow: "var(--odm-shadow-sm)" }}>
         <div className="flex items-center justify-between px-4 py-2.5">
-          <Link to="/" className="flex items-center gap-3 no-underline text-white">
-            <ProgramsEngineeringLogo size={56} borderRadius={8} />
+          <Link to="/" className="flex items-center gap-3 no-underline text-pe-text-strong">
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
             <div>
-              <h1 className="text-base font-bold leading-tight">O&amp;M Manuals Library</h1>
-              <p className="text-[0.6rem] opacity-55 uppercase tracking-wider">Document Management System</p>
+              <h1 className="pe-header-title">O&amp;M Manuals Library</h1>
+              <p className="pe-header-sub">Document Management System</p>
             </div>
           </Link>
           <div className="flex gap-2">
-            <div className="bg-white/10 border border-white/20 rounded px-2.5 py-1.5 text-center">
+            <div className="bg-pe-blue-soft border border-pe-blue-border rounded px-2.5 py-1.5 text-center">
               <div className="text-sm font-bold">{counts.folders}</div>
               <div className="text-[0.55rem] uppercase opacity-70">Folders</div>
             </div>
-            <div className="bg-white/10 border border-white/20 rounded px-2.5 py-1.5 text-center">
+            <div className="bg-pe-blue-soft border border-pe-blue-border rounded px-2.5 py-1.5 text-center">
               <div className="text-sm font-bold">{counts.files}</div>
               <div className="text-[0.55rem] uppercase opacity-70">Files</div>
             </div>

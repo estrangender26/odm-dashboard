@@ -74,20 +74,20 @@ export default function GanttNewProjectPage() {
   return (
     <div className="odm-canvas min-h-screen">
       <header
-        className="text-white"
-        style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)" }}
+        className=""
+        style={{ background: "var(--pe-white)" }}
       >
         <div className="mx-auto flex max-w-4xl items-center px-4 py-3">
           <Link
             to="/"
             aria-label="Dashboard Home"
             title="Dashboard Home"
-            className="flex items-center gap-3 text-white no-underline"
+            className="flex items-center gap-3 text-pe-text-strong no-underline"
           >
-            <ProgramsEngineeringLogo size={56} borderRadius={8} />
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
             <div>
-              <h1 className="text-base font-bold leading-tight sm:text-lg">Create Primavera Lite Project</h1>
-              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Link-based project scheduling</p>
+              <h1 className="pe-header-title">Create Primavera Lite Project</h1>
+              <p className="pe-header-sub">Link-based project scheduling</p>
             </div>
           </Link>
         </div>

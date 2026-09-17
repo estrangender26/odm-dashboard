@@ -72,7 +72,7 @@ function TaskCard({ task }: { task: SmpTask }) {
           </span>
         )}
         {task.maintenanceClass && (
-          <span className="text-[0.65rem] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+          <span className="text-[0.65rem] font-bold px-2 py-0.5 rounded-full bg-pe-blue-soft text-pe-blue-ink">
             {task.maintenanceClass}
           </span>
         )}
@@ -183,7 +183,7 @@ export function SmpDetailPane({
               <h2 className="text-lg font-bold text-gray-800 mt-1 break-words">{doc.title}</h2>
               {doc.smpFamily && (
                 <div className="mt-1">
-                  <span className="text-[0.65rem] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                  <span className="text-[0.65rem] font-bold px-2 py-0.5 rounded-full bg-pe-blue-soft text-pe-blue-ink">
                     {doc.smpFamily}
                   </span>
                 </div>
@@ -416,9 +416,9 @@ export function SmpDetailPane({
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="pe-table w-full text-left text-xs">
                 <thead>
-                  <tr className="text-gray-400 uppercase text-[0.65rem] border-b border-gray-200">
+                  <tr className="uppercase text-[0.65rem]">
                     <th className="py-2 pr-3 font-semibold">Revision</th>
                     <th className="py-2 pr-3 font-semibold">Status</th>
                     <th className="py-2 pr-3 font-semibold">Effectivity</th>
@@ -432,11 +432,15 @@ export function SmpDetailPane({
                     const badge = revisionStatusBadge(revision.status);
                     const isDataRevision = detail.resolvedRevisionId === revision.id;
                     return (
-                      <tr key={revision.id} className={`border-b border-gray-100 ${isDataRevision ? "bg-blue-50/50" : ""}`}>
+                      <tr
+                      key={revision.id}
+                      aria-selected={isDataRevision}
+                      className={`transition-colors hover:bg-pe-row-hover ${isDataRevision ? "bg-pe-row-selected" : ""}`}
+                    >
                         <td className="py-2 pr-3 font-semibold text-gray-800">
                           {revision.revision}
                           {isDataRevision && (
-                            <span className="ml-1.5 text-[0.6rem] font-bold text-blue-600 uppercase">data</span>
+                            <span className="ml-1.5 text-[0.6rem] font-bold text-pe-teal-ink uppercase">data</span>
                           )}
                         </td>
                         <td className="py-2 pr-3">
