@@ -51,6 +51,16 @@ export default function ActivityProgressPanel({
     activity.remainingDurationDays == null ? "" : String(activity.remainingDurationDays)
   );
 
+  /**
+   * EMPTY is a distinct editing state from NUMERIC ZERO. An emptied % field is
+   * an incomplete required value, never an explicit 0% claim: it contributes no
+   * change and blocks Save until the user enters a number — including an
+   * explicit 0 when 0% is what they mean. Never infer zero with truthiness.
+   */
+  const percentDraftEmpty = draftPercent.trim() === "";
+  const percentDraftValue = percentDraftEmpty ? null : Number(draftPercent);
+  const percentDraftInvalid = percentDraftValue != null && !Number.isFinite(percentDraftValue);
+
   /** Only changed fields are submitted: untouched fields must never be re-sent
    *  as explicit facts, or the server's contradiction rules would reject an
    *  otherwise valid edit (e.g. re-sending an Actual Finish at < 100%). */
@@ -62,8 +72,9 @@ export default function ActivityProgressPanel({
     const nextFinish = draftActualFinish.trim() === "" ? null : draftActualFinish.trim();
     if (nextStart !== currentStart) next.actualStart = nextStart;
     if (nextFinish !== currentFinish) next.actualFinish = nextFinish;
-    const pct = draftPercent.trim() === "" ? 0 : Number(draftPercent);
-    if (pct !== (activity.percentComplete ?? 0)) next.percentComplete = pct;
+    if (percentDraftValue != null && Number.isFinite(percentDraftValue) && percentDraftValue !== (activity.percentComplete ?? 0)) {
+      next.percentComplete = percentDraftValue;
+    }
     const trimmedRemaining = draftRemaining.trim();
     const currentRemaining = activity.remainingDurationDays ?? null;
     if (trimmedRemaining === "") {
@@ -141,7 +152,12 @@ export default function ActivityProgressPanel({
       : auto.error;
   }, [resolvedPercent, activity.actualFinish, draftActualFinish, dataDate, resolvedStart]);
 
-  const validationError = !preview.ok ? preview.error : null;
+  const percentEditingError = percentDraftEmpty
+    ? "Percent complete is required; enter a whole number from 0 to 100"
+    : percentDraftInvalid
+      ? "Percent complete must be a whole number from 0 to 100"
+      : null;
+  const validationError = percentEditingError ?? (!preview.ok ? preview.error : null);
   const canSave = dirty && !validationError && !pending;
 
   return (
@@ -220,7 +236,9 @@ export default function ActivityProgressPanel({
         </div>
       </div>
 
-      {completionHint && <p className="mt-2 text-xs text-muted-foreground">{completionHint}</p>}
+      {completionHint && !percentEditingError && (
+        <p className="mt-2 text-xs text-muted-foreground">{completionHint}</p>
+      )}
       {validationError && (
         <p role="alert" className="mt-2 text-xs text-red-600">
           {validationError}

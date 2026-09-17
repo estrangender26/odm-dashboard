@@ -153,3 +153,100 @@ describe("ActivityProgressPanel — entry surface", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 });
+
+describe("ActivityProgressPanel — EMPTY is not ZERO percent", () => {
+  const percentField = () => screen.getByLabelText("Percent Complete") as HTMLInputElement;
+  const saveButton = () => screen.getByRole("button", { name: /Save progress|Saving…/ });
+
+  it("CASE A — clearing % Complete is an incomplete value, not 0%: Save disabled, nothing submitted, stored status kept", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<ActivityProgressPanel {...props({ activity: makeRow({ percentComplete: 25, actualStart: "2026-01-05", remainingDurationDays: 4 }), onSave })} />);
+    expect(screen.getByTestId("progress-preview-status")).toHaveTextContent("In progress");
+
+    await user.clear(percentField());
+
+    // visibly empty, and explicitly incomplete
+    expect(percentField()).toHaveValue(null);
+    expect(screen.getByRole("alert")).toHaveTextContent(/Percent complete is required/);
+    // the emptied field must NOT be previewed as 0% / Not started
+    expect(screen.getByTestId("progress-preview-status")).toHaveTextContent("In progress");
+    expect(screen.getByTestId("progress-preview-status")).not.toHaveTextContent("Not started");
+    // Save must not become enabled through an empty-to-zero coercion
+    expect(saveButton()).toBeDisabled();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("CASE B — an explicit 0 stays numeric zero and can be saved", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<ActivityProgressPanel {...props({ activity: makeRow({ percentComplete: 25, actualStart: "2026-01-05", remainingDurationDays: 4 }), onSave })} />);
+    await user.clear(percentField());
+    await user.type(percentField(), "0");
+
+    expect(percentField()).toHaveValue(0); // numeric zero, not empty
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(saveButton()).toBeEnabled();
+    await user.click(saveButton());
+    expect(onSave).toHaveBeenCalledWith({ percentComplete: 0 });
+  });
+
+  it("CASE C — a valid non-zero value behaves normally", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<ActivityProgressPanel {...props({ activity: makeRow({ percentComplete: 25, actualStart: "2026-01-05", remainingDurationDays: 4 }), onSave })} />);
+    await user.clear(percentField());
+    await user.type(percentField(), "40");
+    expect(screen.getByTestId("progress-preview-status")).toHaveTextContent("In progress");
+    await user.click(saveButton());
+    expect(onSave).toHaveBeenCalledWith({ percentComplete: 40 });
+  });
+
+  it("CASE D — out-of-range values keep the canonical validation and cannot be saved", async () => {
+    const user = userEvent.setup();
+    for (const bad of ["-1", "101"]) {
+      const onSave = vi.fn();
+      const { unmount } = render(<ActivityProgressPanel {...props({ activity: makeRow({ percentComplete: 25, actualStart: "2026-01-05", remainingDurationDays: 4 }), onSave })} />);
+      await user.clear(percentField());
+      await user.type(percentField(), bad);
+      expect(screen.getByRole("alert")).toHaveTextContent(/whole number from 0 to 100/);
+      expect(saveButton()).toBeDisabled();
+      expect(onSave).not.toHaveBeenCalled();
+      unmount();
+    }
+  });
+
+  it("treats '00' and '0.0' as numeric zero, and keeps EMPTY distinct from ZERO", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<ActivityProgressPanel {...props({ activity: makeRow({ percentComplete: 25, actualStart: "2026-01-05", remainingDurationDays: 4 }), onSave })} />);
+    for (const zeroish of ["00", "0.0"]) {
+      await user.clear(percentField());
+      expect(screen.getByRole("alert")).toHaveTextContent(/required/); // EMPTY blocks
+      await user.type(percentField(), zeroish);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();     // ZERO does not
+      expect(saveButton()).toBeEnabled();
+      await user.clear(percentField());
+    }
+  });
+
+  it("blocks Save while % is empty even when another field changed", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<ActivityProgressPanel {...props({ activity: makeRow({ percentComplete: 25, actualStart: "2026-01-05", remainingDurationDays: 4 }), onSave })} />);
+    await user.clear(percentField());
+    await user.type(screen.getByLabelText("Actual Finish"), "2026-01-06");
+    expect(screen.getByRole("alert")).toHaveTextContent(/Percent complete is required/);
+    expect(saveButton()).toBeDisabled();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("does not advertise completion while % is empty", async () => {
+    const user = userEvent.setup();
+    render(<ActivityProgressPanel {...props({ activity: makeRow({ percentComplete: 100, actualStart: "2026-01-05", actualFinish: "2026-01-06" }) })} />);
+    expect(screen.getByText("This activity is complete.")).toBeInTheDocument();
+    await user.clear(percentField());
+    expect(screen.queryByText("This activity is complete.")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Percent complete is required/);
+  });
+});
