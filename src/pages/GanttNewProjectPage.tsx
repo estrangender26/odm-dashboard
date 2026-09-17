@@ -77,7 +77,7 @@ export default function GanttNewProjectPage() {
         className=""
         style={{ background: "var(--pe-white)" }}
       >
-        <div className="mx-auto flex max-w-4xl items-center px-4 py-3">
+        <div className="odm-workspace-shell flex items-center py-3">
           <Link
             to="/"
             aria-label="Dashboard Home"
@@ -93,10 +93,12 @@ export default function GanttNewProjectPage() {
         </div>
       </header>
 
-      <main className="p-6">
-        <div className="mx-auto max-w-md pt-6">
+      <main className="odm-workspace-shell py-6">
+        {/* The generated access links need room; the form keeps its own
+            readable column centred inside the wider shell. */}
+        <div className="pt-6">
           <meta name="referrer" content="no-referrer" />
-          <Card>
+          <Card className="mx-auto max-w-2xl">
             <CardHeader className="text-center">
               <CardTitle>Create Primavera Lite Project</CardTitle>
             </CardHeader>

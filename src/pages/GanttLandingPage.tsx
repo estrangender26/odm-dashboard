@@ -28,7 +28,7 @@ export default function GanttLandingPage() {
         className=""
         style={{ background: "var(--pe-white)" }}
       >
-        <div className="mx-auto flex max-w-4xl items-center px-4 py-3">
+        <div className="odm-workspace-shell flex items-center py-3">
           <Link
             to="/"
             aria-label="Dashboard Home"
@@ -44,15 +44,17 @@ export default function GanttLandingPage() {
         </div>
       </header>
 
-      <main className="p-6">
-        <div className="mx-auto max-w-2xl pt-6">
+      <main className="py-6">
+        <div className="odm-workspace-shell pt-6">
           <meta name="referrer" content="no-referrer" />
           <Card>
             <CardHeader className="text-center">
               <CardTitle>ODM Primavera Lite Online</CardTitle>
             </CardHeader>
           <CardContent className="space-y-6">
-            <p className="text-sm text-muted-foreground">
+            {/* Explanatory copy keeps a readable measure while the project
+                list below uses the full workspace width. */}
+            <p className="max-w-3xl text-sm text-muted-foreground">
               Link-based project scheduling. No account required. Keep your admin link safe — it is the only way to manage a project.
             </p>
 
@@ -69,7 +71,7 @@ export default function GanttLandingPage() {
                   <Spinner className="h-4 w-4" /> Loading remembered projects…
                 </div>
               ) : links.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="max-w-3xl text-sm text-muted-foreground">
                   No remembered projects. Create one above, or paste an admin link into the address bar.
                 </p>
               ) : (
@@ -89,7 +91,7 @@ export default function GanttLandingPage() {
               )}
             </div>
 
-            <div className="rounded bg-amber-50 p-3 text-xs text-amber-800">
+            <div className="max-w-3xl rounded bg-amber-50 p-3 text-xs text-amber-800">
               Warning: Remembered projects are stored in this browser. If browser storage is cleared and you have not saved the admin link elsewhere, you may lose access.
             </div>
           </CardContent>

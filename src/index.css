@@ -254,6 +254,24 @@
     background-color: var(--odm-canvas);
   }
 
+  /* Module workspace shell — the centred page column shared by the Primavera
+     Lite screens (header row and page body), so the scheduling workspace can
+     use the available desktop width instead of a narrow fixed column.
+     1280px matches the widest existing ODM module page (Presentation Center);
+     gutters are 16px on phones and 24px from the small breakpoint up, so the
+     column never touches the viewport edge and cannot overflow horizontally. */
+  .odm-workspace-shell {
+    width: calc(100% - 32px);
+    max-width: 1280px;
+    margin-inline: auto;
+  }
+
+  @media (min-width: 640px) {
+    .odm-workspace-shell {
+      width: calc(100% - 48px);
+    }
+  }
+
   /* Card surface — thin border, 10px radius, no shadow at rest. */
   .odm-surface {
     background-color: var(--odm-surface);

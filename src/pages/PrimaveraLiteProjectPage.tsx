@@ -144,7 +144,7 @@ export default function PrimaveraLiteProjectPage() {
           boxShadow: "var(--odm-shadow-sm)",
         }}
       >
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+        <div className="odm-workspace-shell flex items-center justify-between py-3">
           <Link
             to="/"
             aria-label="Dashboard Home"
@@ -165,7 +165,7 @@ export default function PrimaveraLiteProjectPage() {
       </header>
 
       <meta name="referrer" content="no-referrer" />
-      <main className="mx-auto max-w-4xl space-y-6 p-6">
+      <main className="odm-workspace-shell space-y-6 py-6">
         <Card>
           <CardHeader>
             <CardTitle>Project Overview</CardTitle>
