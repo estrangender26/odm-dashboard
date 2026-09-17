@@ -640,6 +640,41 @@
     color: var(--pe-text-muted);
   }
 
+  /* ── Module header brand block ─────────────────────────────────────────
+     ONE treatment for the Programs Engineering identity inside every existing
+     module header. This normalises brand typography and spacing only — the
+     surrounding header markup, footprint and height are untouched, and the
+     module title stays the strongest text. */
+  .pe-header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    text-decoration: none;
+    color: inherit;
+  }
+  .pe-header-title {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.2px;
+    color: var(--pe-text-strong);
+    margin: 0;
+  }
+  @media (min-width: 640px) {
+    .pe-header-title {
+      font-size: 17px;
+    }
+  }
+  .pe-header-sub {
+    font-size: 10.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--pe-text-muted);
+    margin: 2px 0 0;
+  }
   .pe-section {
     max-width: 1440px;
     margin: 0 auto;

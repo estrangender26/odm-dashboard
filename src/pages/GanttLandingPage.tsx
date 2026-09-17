@@ -37,8 +37,8 @@ export default function GanttLandingPage() {
           >
             <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
             <div>
-              <h1 className="text-base font-bold leading-tight sm:text-lg">ODM Primavera Lite Online</h1>
-              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Link-based project scheduling</p>
+              <h1 className="pe-header-title">ODM Primavera Lite Online</h1>
+              <p className="pe-header-sub">Link-based project scheduling</p>
             </div>
           </Link>
         </div>

@@ -94,11 +94,11 @@ export default function Home() {
       {/* Programs Header */}
       <header style={{ background: 'var(--pe-white)', color: 'var(--pe-text)', position: 'sticky', top: 0, zIndex: 100, borderBottom: '1px solid var(--pe-border)', boxShadow: 'var(--odm-shadow-sm)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <Link to="/" onClick={handleOwnerLogoClick} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
+          <Link to="/" onClick={handleOwnerLogoClick} style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
             <ProgramsEngineeringLogo size={72} borderRadius={8} tight />
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
-              <span className="text-[10px] block mt-0.5 opacity-100" style={{ textTransform: 'uppercase', letterSpacing: '1.5px', color: 'var(--pe-blue)' }}>Programs Engineering</span>
+              <h1 className="pe-header-title truncate">Program Oversight Center</h1>
+              <span className="pe-header-sub block" style={{ color: 'var(--pe-blue)' }}>Programs Engineering</span>
             </div>
           </Link>
           <div className="flex items-center gap-2 ml-auto flex-shrink-0">

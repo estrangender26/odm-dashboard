@@ -123,11 +123,11 @@ export default function Help() {
       {/* Header */}
       <header style={{ background: 'var(--pe-white)', color: 'var(--pe-text)', boxShadow: 'var(--pe-shadow-xs)' }}>
         <div style={{ maxWidth: 1440, margin: '0 auto', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
+          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit' }}>
             <ProgramsEngineeringLogo size={72} borderRadius={8} tight />
             <div>
-              <h1 className="text-sm sm:text-[15px] font-bold" style={{ letterSpacing: '-0.2px', lineHeight: 1.2 }}>Program Oversight Center</h1>
-              <span className="text-[10px] block mt-0.5 opacity-100" style={{ textTransform: 'uppercase', letterSpacing: '1.5px' }}>Help & User Guide</span>
+              <h1 className="pe-header-title">Program Oversight Center</h1>
+              <span className="pe-header-sub block">Help & User Guide</span>
             </div>
           </Link>
         </div>

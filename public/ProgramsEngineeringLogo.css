@@ -94,5 +94,8 @@
    ============================================================ */
 .pe-liquid-logo--tight > img,
 .pe-liquid-logo--tight .pe-liquid-logo__base {
-  transform: translate(5.67%, 4.01%) scale(1.664);
+  /* !important is required: the standalone dashboards set an inline
+     `transform: translateZ(0)` on this <img> for GPU compositing, and an inline
+     style outranks a stylesheet rule. */
+  transform: translate(5.67%, 4.01%) scale(1.664) !important;
 }

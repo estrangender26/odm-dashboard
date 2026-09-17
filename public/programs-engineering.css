@@ -398,6 +398,44 @@
   border: 1px solid var(--pe-danger-border) !important;
 }
 
+/* ── Brand block normalisation ────────────────────────────────────────────
+   The same treatment the React headers use via .pe-header-*, so the standalone
+   dashboards match the rest of the suite. Typography and spacing only: the
+   header markup, footprint and height are untouched. */
+.hdr .brand h1,
+.app-header .brand h1,
+.hdr .brand-title,
+.app-header .brand-title {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -0.2px !important;
+}
+
+.hdr .brand span,
+.app-header .brand span,
+.hdr .brand-sub,
+.app-header .brand-sub {
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+  line-height: 1.2 !important;
+  letter-spacing: 1.2px !important;
+  text-transform: uppercase !important;
+}
+
+/* The logo/title divider gap used to be wider here than in the React headers. */
+.hdr .brand div[style*="border-left"],
+.app-header .brand div[style*="border-left"] {
+  padding-left: 5px !important;
+}
+/* The standalone headers keep their original vertical divider rule between the
+   logo and the title, which adds gap of its own. Trim the flex gap so the total
+   logo-to-title distance matches the 12px the React headers use. */
+.hdr .brand a,
+.app-header .brand a {
+  gap: 6px !important;
+}
+
 /* Header chips / labels were tuned for the dark bar. */
 .hdr .hdr-chip label,
 .app-header .hdr-chip label {

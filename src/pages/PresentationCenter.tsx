@@ -679,10 +679,10 @@ export default function PresentationCenter() {
           >
             <ProgramsEngineeringLogo size={44} borderRadius={8} tight />
             <div>
-              <h1 className="text-base font-bold leading-tight sm:text-lg">
+              <h1 className="pe-header-title">
                 Presentation Center
               </h1>
-              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">
+              <p className="pe-header-sub">
                 PowerPoint Hub
               </p>
             </div>

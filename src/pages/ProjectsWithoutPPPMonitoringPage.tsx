@@ -477,13 +477,13 @@ export default function ProjectsWithoutPPPMonitoringPage() {
       {/* Header */}
       <header style={{ background: "var(--pe-white)", color: "var(--pe-text)", position: "sticky", top: 0, zIndex: 100, boxShadow: "var(--odm-shadow-sm)" }}>
         <div style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, textDecoration: "none", color: "inherit" }}>
+          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, textDecoration: "none", color: "inherit" }}>
             <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: "-0.2px", lineHeight: 1.2 }}>
+              <h1 className="pe-header-title truncate">
                 {MODULE_TITLE}
               </h1>
-              <span className="text-[10px] block mt-0.5 opacity-100" style={{ textTransform: "uppercase", letterSpacing: "1.5px" }}>
+              <span className="pe-header-sub block">
                 Monitoring
               </span>
             </div>

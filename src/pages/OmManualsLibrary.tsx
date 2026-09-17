@@ -1122,8 +1122,8 @@ export default function OmManualsLibrary() {
           <Link to="/" className="flex items-center gap-3 no-underline text-pe-text-strong">
             <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
             <div>
-              <h1 className="text-base font-bold leading-tight">O&amp;M Manuals Library</h1>
-              <p className="text-[0.6rem] opacity-100 uppercase tracking-wider">Document Management System</p>
+              <h1 className="pe-header-title">O&amp;M Manuals Library</h1>
+              <p className="pe-header-sub">Document Management System</p>
             </div>
           </Link>
           <div className="flex gap-2">

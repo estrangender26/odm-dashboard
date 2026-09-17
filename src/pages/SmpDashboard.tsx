@@ -282,8 +282,8 @@ export default function SmpDashboard() {
           <Link to="/" className="flex items-center gap-3 no-underline text-pe-text-strong">
             <ProgramsEngineeringLogo size={72} borderRadius={8} tight />
             <div>
-              <h1 className="text-lg font-bold leading-tight">Standard Maintenance Procedures</h1>
-              <p className="text-xs opacity-100" style={{ letterSpacing: "1px", textTransform: "uppercase" }}>
+              <h1 className="pe-header-title">Standard Maintenance Procedures</h1>
+              <p className="pe-header-sub">
                 Controlled Engineering Document Library
               </p>
             </div>
