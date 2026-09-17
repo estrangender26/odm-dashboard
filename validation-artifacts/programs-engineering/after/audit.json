@@ -1,0 +1,221 @@
+{
+  "phase": "after",
+  "baseUrl": "http://localhost:5199",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "results": [
+    {
+      "name": "01-home",
+      "path": "/",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 1367,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": null,
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+      ],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "02-governance-om-manual",
+      "path": "/governance.html",
+      "ok": true,
+      "status": 200,
+      "title": "O&M Manual Governance — Facility Onboarding Alignment Tracker",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 3823,
+      "bodyBg": "rgb(245, 249, 250)",
+      "worstOverflow": null,
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "[API] fetchStateFromDB error: Error: HTTP 500\n    at fetchStateFromDB (http://localhost:5199/governance.html:652:23)\n    at async INIT (http://localhost:5199/governance.html:1227:11)",
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "[API] fetchStateFromDB error: Error: HTTP 500\n    at fetchStateFromDB (http://localhost:5199/governance.html:652:23)\n    at async INIT (http://localhost:5199/governance.html:1227:11)"
+      ],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "03-scorecard-monthly-kpi",
+      "path": "/scorecard-kpi.html",
+      "ok": true,
+      "status": 200,
+      "title": "Monthly Scorecard: Maintenance KPIs",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 1493,
+      "bodyBg": "rgb(245, 249, 250)",
+      "worstOverflow": null,
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "Saved KPI load error: Error: DATABASE_URL not set\n    at fetchSavedMonthlyKpiRecords (http://localhost:5199/scorecard-kpi.html:2912:22)"
+      ],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "04-mw-dashboard-odm",
+      "path": "/mw-dashboard.html",
+      "ok": true,
+      "status": 200,
+      "title": "Programs — ODM Dashboard",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 978,
+      "bodyBg": "rgb(245, 249, 250)",
+      "worstOverflow": null,
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "DB load failed: Error: HTTP 500\n    at xhr.onload (http://localhost:5199/mw-dashboard.html:2934:34)"
+      ],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "05-primavera-lite",
+      "path": "/gantt",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 900,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": null,
+      "consoleErrors": [],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "06-primavera-lite-new",
+      "path": "/gantt/new",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 900,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": null,
+      "consoleErrors": [],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "07-smp-procedures",
+      "path": "/smp-dashboard",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 900,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": null,
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "08-om-manuals-library",
+      "path": "/om-manuals-library",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 900,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": null,
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "09-projects-without-ppp",
+      "path": "/projects-without-ppp",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 900,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": {
+        "over": 900,
+        "tag": "table",
+        "cls": "pe-table border-collapse text-left text-xs"
+      },
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "10-presentation-center",
+      "path": "/presentation-center",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 2514,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": null,
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "[PresentationCenter] Failed to load uploaded files Error: Failed to load presentation files.\n    at listPresentationFiles (http://localhost:5199/src/modules/presentation-center/presentationFilesApi.ts:11:11)\n    at async getUploadedPresenta",
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "[PresentationCenter] Failed to load generated presentations Error: Failed to load presentation files.\n    at listPresentationFiles (http://localhost:5199/src/modules/presentation-center/presentationFilesApi.ts:11:11)\n    at async getGenerat"
+      ],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "11-login",
+      "path": "/login",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 900,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": null,
+      "consoleErrors": [],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    },
+    {
+      "name": "12-help",
+      "path": "/help",
+      "ok": true,
+      "status": 200,
+      "title": "Program Oversight Center",
+      "scrollW": 1440,
+      "clientW": 1440,
+      "scrollH": 3054,
+      "bodyBg": "rgb(255, 255, 255)",
+      "worstOverflow": null,
+      "consoleErrors": [],
+      "failedRequests": [],
+      "horizontalOverflow": false
+    }
+  ]
+}

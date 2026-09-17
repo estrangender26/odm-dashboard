@@ -1,8 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
-import { Link } from "react-router";
 import * as XLSX from "xlsx";
 import { trpc } from "@/providers/trpc";
-import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import { MODULE_IDENTITY, ModuleMasthead, SuiteMasthead } from "@/components/programs";
 import AIAssistant from "@/components/AIAssistant";
 import { AlertTriangle, CircleCheck, Download, FolderOpen, Info, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,13 +20,13 @@ function Banner({ type, message, onDismiss }: {
   const s: Record<string, string> = {
     error: "bg-red-50 border-red-200 text-red-800",
     success: "bg-green-50 border-green-200 text-green-800",
-    info: "bg-blue-50 border-blue-200 text-blue-800",
+    info: "bg-pe-blue-soft border-pe-blue-border text-pe-blue-ink",
   };
   return (
     <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
       <span aria-hidden="true">{type === "error" ? <AlertTriangle size={15} /> : type === "success" ? <CircleCheck size={15} /> : <Info size={15} />}</span>
       <span className="flex-1">{message}</span>
-      {onDismiss && <button onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
+      {onDismiss && <button type="button" onClick={onDismiss} className="pe-focusable rounded text-lg leading-none opacity-60 hover:opacity-100">&times;</button>}
     </div>
   );
 }
@@ -38,11 +37,11 @@ function ModalShell({ title, onClose, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <span className="text-sm font-bold text-gray-800">{title}</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-pe-text-strong/50 p-4" onClick={onClose}>
+      <div className="pe-card shadow-pe-lg max-w-lg w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="pe-card__header flex items-center justify-between">
+          <span className="pe-card__title">{title}</span>
+          <button type="button" onClick={onClose} className="pe-focusable rounded text-pe-faint hover:text-pe-text text-lg leading-none">&times;</button>
         </div>
         <div className="p-4">{children}</div>
       </div>
@@ -50,7 +49,7 @@ function ModalShell({ title, onClose, children }: {
   );
 }
 
-const inputClass = "w-full px-3 py-2 border border-gray-300 rounded text-sm outline-none focus:border-blue-500 bg-white";
+const inputClass = "w-full px-3 py-2 border border-pe-border-strong rounded text-sm outline-none bg-white text-pe-text placeholder:text-pe-faint focus:border-pe-blue focus:ring-2 focus:ring-pe-blue-border";
 
 export default function SmpDashboard() {
   const { isAuthenticated } = useAuth();
@@ -276,43 +275,50 @@ export default function SmpDashboard() {
         </div>
       )}
 
-      {/* Header */}
-      <header className="flex-shrink-0 text-white" style={{ background: "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)", borderBottom: "1px solid rgba(255,255,255,.08)", boxShadow: "var(--odm-shadow-sm)" }}>
-        <div className="flex items-center justify-between px-4 py-3">
-          <Link to="/" className="flex items-center gap-3 no-underline text-white">
-            <ProgramsEngineeringLogo size={72} borderRadius={8} />
-            <div>
-              <h1 className="text-lg font-bold leading-tight">Standard Maintenance Procedures</h1>
-              <p className="text-xs opacity-55" style={{ letterSpacing: "1px", textTransform: "uppercase" }}>
-                Controlled Engineering Document Library
-              </p>
-            </div>
-          </Link>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => openUpload("new")}
-              className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded text-xs font-semibold hover:bg-white/20 flex items-center gap-1"
+      {/* Suite identity — Programs Engineering sits above the module identity. */}
+      <div className="flex-shrink-0">
+        <SuiteMasthead
+          linkTitle="Programs Engineering suite home"
+          actions={
+            <span
+              className="pe-badge pe-badge--blue"
+              title="Controlled SMP documents in the library"
             >
-              <Upload size={14} aria-hidden="true" /> Upload SMP PDF
-            </button>
-            <button
-              onClick={handleExport}
-              className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded text-xs font-semibold hover:bg-white/20 flex items-center gap-1"
-            >
-              <Download size={14} aria-hidden="true" /> Export
-            </button>
-            <div className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-center">
-              <div className="text-lg font-bold">{listQuery.data?.total ?? 0}</div>
-              <div className="text-[0.6rem] uppercase opacity-70">Docs</div>
-            </div>
-          </div>
-        </div>
-      </header>
+              {listQuery.data?.total ?? 0} Docs
+            </span>
+          }
+        />
+        <ModuleMasthead
+          showIdentityRow={false}
+          icon={MODULE_IDENTITY.smp.icon}
+          tone={MODULE_IDENTITY.smp.tone}
+          title="Standard Maintenance Procedures"
+          subtitle="Controlled Engineering Document Library"
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={() => openUpload("new")}
+                className="pe-btn pe-btn--primary"
+              >
+                <Upload size={14} aria-hidden="true" /> Upload SMP PDF
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                className="pe-btn pe-btn--secondary"
+              >
+                <Download size={14} aria-hidden="true" /> Export
+              </button>
+            </>
+          }
+        />
+      </div>
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT: library */}
-        <div className="w-full sm:w-[400px] lg:w-[440px] flex flex-col border-r border-gray-200 bg-white">
+        <div className="w-full sm:w-[400px] lg:w-[440px] flex flex-col border-r border-pe-border bg-white">
           <SmpLibraryList
             items={items}
             availableFilters={availableFilters}
@@ -343,9 +349,9 @@ export default function SmpDashboard() {
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center max-w-md px-6">
-                <FolderOpen className="mx-auto mb-4 opacity-30" size={56} aria-hidden="true" />
-                <h3 className="text-lg font-semibold text-gray-400 mb-2">Select a Document</h3>
-                <p className="text-sm text-gray-400">
+                <FolderOpen className="mx-auto mb-4 text-pe-faint opacity-40" size={56} aria-hidden="true" />
+                <h3 className="text-lg font-semibold text-pe-muted mb-2">Select a Document</h3>
+                <p className="text-sm text-pe-faint">
                   Choose an SMP from the library to view its document control, applicability, approved PDF, and procedure data.
                 </p>
               </div>
@@ -371,11 +377,11 @@ export default function SmpDashboard() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Reference Number *</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Reference Number *</label>
                 <input value={editForm.code} onChange={(e) => setEditForm((p) => p && { ...p, code: e.target.value })} className={inputClass} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">SMP ID</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">SMP ID</label>
                 <input value={editForm.smpId} onChange={(e) => setEditForm((p) => p && { ...p, smpId: e.target.value })} className={inputClass} />
               </div>
             </div>
@@ -385,11 +391,11 @@ export default function SmpDashboard() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">SMP Family (as documented)</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">SMP Family (as documented)</label>
                 <input value={editForm.smpFamily} onChange={(e) => setEditForm((p) => p && { ...p, smpFamily: e.target.value })} className={inputClass} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Canonical Family</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Canonical Family</label>
                 <select value={editForm.familyId} onChange={(e) => setEditForm((p) => p && { ...p, familyId: e.target.value })} className={inputClass}>
                   <option value="">No classification</option>
                   {(familiesQuery.data ?? []).map((f) => (
@@ -400,27 +406,27 @@ export default function SmpDashboard() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Equipment Type</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Equipment Type</label>
                 <input value={editForm.equipmentType} onChange={(e) => setEditForm((p) => p && { ...p, equipmentType: e.target.value })} className={inputClass} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Asset Name</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Asset Name</label>
                 <input value={editForm.assetName} onChange={(e) => setEditForm((p) => p && { ...p, assetName: e.target.value })} className={inputClass} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Asset Type</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Asset Type</label>
                 <input value={editForm.assetType} onChange={(e) => setEditForm((p) => p && { ...p, assetType: e.target.value })} className={inputClass} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Facility Type</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Facility Type</label>
                 <input value={editForm.facilityType} onChange={(e) => setEditForm((p) => p && { ...p, facilityType: e.target.value })} className={inputClass} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Criticality</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Criticality</label>
                 <select value={editForm.criticality} onChange={(e) => setEditForm((p) => p && { ...p, criticality: e.target.value })} className={inputClass}>
                   <option value="">Select...</option>
                   <option value="A">A</option>
@@ -429,23 +435,23 @@ export default function SmpDashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Document Owner</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Document Owner</label>
                 <input value={editForm.documentOwner} onChange={(e) => setEditForm((p) => p && { ...p, documentOwner: e.target.value })} className={inputClass} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Prepared By</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Prepared By</label>
                 <input value={editForm.preparedBy} onChange={(e) => setEditForm((p) => p && { ...p, preparedBy: e.target.value })} className={inputClass} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Reviewed By</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Reviewed By</label>
                 <input value={editForm.reviewedBy} onChange={(e) => setEditForm((p) => p && { ...p, reviewedBy: e.target.value })} className={inputClass} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Approved By</label>
+                <label className="block text-xs font-semibold text-pe-muted mb-1">Approved By</label>
                 <input value={editForm.approvedBy} onChange={(e) => setEditForm((p) => p && { ...p, approvedBy: e.target.value })} className={inputClass} />
               </div>
             </div>
@@ -458,18 +464,19 @@ export default function SmpDashboard() {
                 className={inputClass}
               />
             </div>
-            <p className="text-[0.65rem] text-gray-400">
+            <p className="text-[0.65rem] text-pe-faint">
               Revision, effectivity and status are controlled through revision uploads and cannot be edited here.
             </p>
             <div className="flex gap-2 pt-1">
               <button
+                type="button"
                 onClick={submitEdit}
                 disabled={updateMut.isPending || !editForm.code.trim() || !editForm.title.trim()}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+                className="pe-btn pe-btn--primary flex-1"
               >
                 {updateMut.isPending ? "Saving..." : "Update Metadata"}
               </button>
-              <button onClick={() => setEditOpen(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-200">
+              <button type="button" onClick={() => setEditOpen(false)} className="pe-btn pe-btn--ghost">
                 Cancel
               </button>
             </div>
@@ -480,21 +487,22 @@ export default function SmpDashboard() {
       {/* Delete confirmation — staged, recorded deletion */}
       {deleteOpen && selectedDoc && (
         <ModalShell title="Delete SMP" onClose={() => setDeleteOpen(false)}>
-          <p className="text-sm text-gray-700 mb-4">
+          <p className="text-sm text-pe-text mb-4">
             Are you sure you want to delete <strong>{selectedDoc.code} — {selectedDoc.title}</strong>?
             <br />
             All revisions ({selectedDoc.revisionCount}) and their stored PDF objects will be permanently removed.
             This action cannot be undone.
           </p>
-          <p className="text-xs text-gray-400 mb-4">
+          <p className="text-xs text-pe-faint mb-4">
             Deletion is staged: PDF objects are removed first and the document record after. If a step fails,
             nothing is silently dropped — you can retry with the same confirmation.
           </p>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={requestDelete}
               disabled={deletePrepareMut.isPending || deleteConfirmMut.isPending}
-              className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-50"
+              className="pe-btn pe-btn--danger flex-1"
             >
               {(deletePrepareMut.isPending || deleteConfirmMut.isPending)
                 ? "Deleting..."
@@ -502,7 +510,7 @@ export default function SmpDashboard() {
                   ? "Retry Deletion"
                   : "Delete SMP"}
             </button>
-            <button onClick={() => setDeleteOpen(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-200">
+            <button type="button" onClick={() => setDeleteOpen(false)} className="pe-btn pe-btn--ghost">
               Cancel
             </button>
           </div>

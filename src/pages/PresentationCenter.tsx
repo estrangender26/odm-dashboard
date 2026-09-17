@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 import {
   Download,
   Edit3,
@@ -17,7 +16,7 @@ import {
 } from "lucide-react";
 import PptxViewer from "@/components/PptxViewer";
 import { toast, Toaster } from "sonner";
-import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
+import { MODULE_IDENTITY, ModuleMasthead, SuiteMasthead } from "@/components/programs";
 import { deckGeneratorRegistry } from "@/modules/presentation-center/generators";
 import {
   ALL_BUSINESS_UNITS_LABEL,
@@ -657,139 +656,29 @@ export default function PresentationCenter() {
 
   return (
     <div
-      className="min-h-screen bg-[#F6F8FB] text-slate-900"
+      className="odm-canvas min-h-screen text-pe-text"
       style={{
         fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
       <Toaster richColors position="top-right" />
-      <header
-        className="sticky top-0 z-30 text-white shadow-md"
-        style={{
-          background:
-            "linear-gradient(180deg, var(--odm-navy) 0%, var(--odm-navy-deep) 100%)",
-        }}
-      >
-        <div className="mx-auto flex max-w-7xl items-center px-4 py-3">
-          <Link
-            to="/"
-            aria-label="Dashboard Home"
-            title="Dashboard Home"
-            className="flex items-center gap-3 text-white no-underline"
-          >
-            <ProgramsEngineeringLogo size={44} borderRadius={8} />
-            <div>
-              <h1 className="text-base font-bold leading-tight sm:text-lg">
-                Presentation Center
-              </h1>
-              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">
-                PowerPoint Hub
-              </p>
-            </div>
-          </Link>
-        </div>
-      </header>
 
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:py-8">
-        {monthlyKpiAcceptanceMode && (
-          <div
-            role="status"
-            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900"
-          >
-            Local Monthly KPI UI acceptance data is active. No production data
-            will be read or changed.
-          </div>
-        )}
-        <section className="rounded-2xl border border-[#D6DFE8] bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#005BAC]">
-                ODM Dashboard Module
-              </p>
-              <h2 className="mt-2 text-2xl font-bold text-[#0B1D44] sm:text-3xl">
-                Create, manage, and generate PowerPoint presentations from
-                dashboard data.
-              </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Upload approved decks, generate Monthly KPI Scorecard
-                presentations, and keep a recent history of generated PowerPoint
-                files for download.
-              </p>
-            </div>
-            <div className="grid min-w-[220px] grid-cols-2 gap-3 rounded-xl bg-[#EEF6FF] p-4 text-center">
-              <div>
-                <div className="text-2xl font-bold text-[#005BAC]">
-                  {filesLoading ? "…" : uploaded.length}
-                </div>
-                <div className="text-xs text-slate-600">Uploaded</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-[#005BAC]">
-                  {filesLoading ? "…" : generated.length}
-                </div>
-                <div className="text-xs text-slate-600">Generated</div>
-              </div>
-            </div>
-          </div>
-        </section>
+      {/* Suite identity above module identity — the dark navy header is
+          replaced by the white Programs Engineering mastheads. */}
+      <SuiteMasthead
+        linkAriaLabel="Dashboard Home"
+        linkTitle="Dashboard Home"
+        actions={<span className="pe-badge pe-badge--teal">PowerPoint Hub</span>}
+      />
 
-        <section className="rounded-2xl border border-[#D6DFE8] bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div>
-              <h2 className="flex items-center gap-2 text-xl font-bold text-[#0B1D44]">
-                <FileText className="h-5 w-5 text-[#005BAC]" /> Uploaded Files /
-                Deck Library
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Manage uploaded .pptx files. Download, rename, replace, delete,
-                or clean up duplicate library entries.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label className="relative lg:col-span-2">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={query}
-                  onChange={event => setQuery(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-[#D6DFE8] pl-9 pr-3 text-sm outline-none focus:border-[#005BAC]"
-                  placeholder="Search presentations"
-                />
-              </label>
-              <select
-                value={sortKey}
-                onChange={event => setSortKey(event.target.value as SortKey)}
-                className="h-10 rounded-lg border border-[#D6DFE8] px-3 text-sm outline-none focus:border-[#005BAC]"
-              >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-                <option value="name">Name</option>
-                <option value="size">File size</option>
-                <option value="category">Category</option>
-              </select>
-              <select
-                value={category}
-                onChange={event =>
-                  setCategory(event.target.value as PresentationCategory)
-                }
-                className="h-10 rounded-lg border border-[#D6DFE8] px-3 text-sm outline-none focus:border-[#005BAC]"
-              >
-                {categoryOptions.map(option => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-dashed border-[#9BB7D4] bg-[#F8FBFF] p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-semibold text-[#0B1D44]">
-                Upload PowerPoint files (.pptx only)
-              </p>
-              <p className="text-sm text-slate-600">
-                Unsupported file types are rejected with a user-friendly
-                message.
-              </p>
-            </div>
+      <ModuleMasthead
+        showIdentityRow={false}
+        icon={MODULE_IDENTITY.presentationCenter.icon}
+        tone={MODULE_IDENTITY.presentationCenter.tone}
+        title="Presentation Center"
+        subtitle="Create, manage and generate PowerPoint decks from dashboard data."
+        actions={
+          <>
             <input
               ref={fileInputRef}
               type="file"
@@ -798,9 +687,10 @@ export default function PresentationCenter() {
               className="hidden"
             />
             <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white transition hover:bg-[#004A8F] disabled:opacity-60"
+              className="pe-btn pe-btn--primary"
             >
               {isUploading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -813,15 +703,124 @@ export default function PresentationCenter() {
               type="button"
               onClick={() => openCleanupDuplicatesPreview()}
               disabled={isUploading || uploaded.length < 2}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] transition hover:bg-[#EEF6FF] disabled:opacity-60"
+              className="pe-btn pe-btn--secondary"
             >
               <Trash2 className="h-4 w-4" /> Clean Up Duplicates
             </button>
+          </>
+        }
+      />
+
+      {/* Same 1440px content column as the mastheads, so the suite reads as
+          one application rather than a set of differently-inset pages. */}
+      <main className="pe-section space-y-6">
+        {monthlyKpiAcceptanceMode && (
+          <div
+            role="status"
+            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900"
+          >
+            Local Monthly KPI UI acceptance data is active. No production data
+            will be read or changed.
+          </div>
+        )}
+
+        {/* In-page overview — deliberately subordinate to the masthead: the
+            module identity above owns the heading weight. */}
+        <section className="pe-card p-5 sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="odm-eyebrow" style={{ color: "var(--pe-text-faint)" }}>
+                ODM Dashboard Module
+              </p>
+              <h2 className="mt-2 text-base font-semibold text-pe-text-strong sm:text-lg">
+                Create, manage, and generate PowerPoint presentations from
+                dashboard data.
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-pe-muted">
+                Upload approved decks, generate Monthly KPI Scorecard
+                presentations, and keep a recent history of generated PowerPoint
+                files for download.
+              </p>
+            </div>
+            <div className="grid min-w-[220px] grid-cols-2 gap-3 rounded-xl bg-pe-blue-soft p-4 text-center">
+              <div>
+                <div className="text-2xl font-bold text-pe-blue-ink">
+                  {filesLoading ? "…" : uploaded.length}
+                </div>
+                <div className="text-xs text-pe-muted">Uploaded</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-pe-teal-ink">
+                  {filesLoading ? "…" : generated.length}
+                </div>
+                <div className="text-xs text-pe-muted">Generated</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="pe-card p-5 sm:p-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <h2 className="pe-card__title flex items-center gap-2 text-base">
+                <FileText className="h-5 w-5 text-pe-blue" /> Uploaded Files /
+                Deck Library
+              </h2>
+              <p className="mt-1 text-sm text-pe-muted">
+                Manage uploaded .pptx files. Download, rename, replace, delete,
+                or clean up duplicate library entries.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="relative lg:col-span-2">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pe-faint" />
+                <input
+                  value={query}
+                  onChange={event => setQuery(event.target.value)}
+                  className="pe-focusable h-10 w-full rounded-lg border border-pe-border pl-9 pr-3 text-sm outline-none focus:border-pe-blue"
+                  placeholder="Search presentations"
+                />
+              </label>
+              <select
+                value={sortKey}
+                onChange={event => setSortKey(event.target.value as SortKey)}
+                className="pe-focusable h-10 rounded-lg border border-pe-border px-3 text-sm outline-none focus:border-pe-blue"
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="name">Name</option>
+                <option value="size">File size</option>
+                <option value="category">Category</option>
+              </select>
+              <select
+                value={category}
+                onChange={event =>
+                  setCategory(event.target.value as PresentationCategory)
+                }
+                className="pe-focusable h-10 rounded-lg border border-pe-border px-3 text-sm outline-none focus:border-pe-blue"
+              >
+                {categoryOptions.map(option => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="mt-5 overflow-x-auto rounded-xl border border-[#E2E8F0]">
-            <table className="min-w-full divide-y divide-[#E2E8F0] text-sm">
-              <thead className="bg-[#F1F5F9] text-left text-xs font-bold uppercase tracking-wide text-slate-600">
+          {/* Upload + library maintenance controls live in the module masthead;
+              this band states the contract they enforce. */}
+          <div className="mt-4 flex flex-col gap-1 rounded-xl border border-dashed border-pe-blue-border bg-pe-blue-soft px-4 py-3">
+            <p className="font-semibold text-pe-text-strong">
+              Upload PowerPoint files (.pptx only)
+            </p>
+            <p className="text-sm text-pe-muted">
+              Unsupported file types are rejected with a user-friendly
+              message.
+            </p>
+          </div>
+
+          <div className="mt-5 overflow-x-auto rounded-xl border border-pe-border">
+            <table className="pe-table min-w-full text-sm">
+              <thead className="text-left">
                 <tr>
                   <th className="px-4 py-3">File Name</th>
                   <th className="px-4 py-3">File Type</th>
@@ -832,7 +831,7 @@ export default function PresentationCenter() {
                   <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#E2E8F0] bg-white">
+              <tbody>
                 {filteredUploaded.map(deck => (
                   <tr key={deck.id}>
                     <td className="px-4 py-3">
@@ -841,27 +840,27 @@ export default function PresentationCenter() {
                           setViewerDeck(deck);
                           setViewerOpen(true);
                         }}
-                        className="font-semibold text-[#0B1D44] hover:text-[#005BAC] hover:underline"
+                        className="pe-focusable rounded font-semibold text-pe-text-strong hover:text-pe-blue-ink hover:underline"
                         title="View slides"
                       >
                         {deck.name}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      <span className="rounded-full bg-[#DBEAFE] px-2.5 py-1 text-xs font-semibold text-[#005BAC]">
+                    <td className="px-4 py-3 text-pe-muted">
+                      <span className="pe-badge pe-badge--blue">
                         {deck.category}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-pe-muted">
                       {formatDate(deck.uploadDate)}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-pe-muted">
                       {deck.uploadedBy}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-pe-muted">
                       {formatBytes(deck.size)}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-pe-muted">
                       {getUploadedFileUsage(deck)}
                     </td>
                     <td className="px-3 py-2">
@@ -871,21 +870,21 @@ export default function PresentationCenter() {
                             setViewerDeck(deck);
                             setViewerOpen(true);
                           }}
-                          className="col-span-1 inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary col-span-1 h-7 px-2 text-xs"
                           title="View slides"
                         >
                           <Play className="h-3.5 w-3.5" /> View Slides
                         </button>
                         <button
                           onClick={() => downloadDataUrl(deck.dataUrl, deck.name)}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary h-7 px-2 text-xs"
                           title="Download"
                         >
                           <Download className="h-3.5 w-3.5" /> Download
                         </button>
                         <button
                           onClick={() => setUploadDetailCandidate(deck)}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary h-7 px-2 text-xs"
                           title="View Details"
                         >
                           <Eye className="h-3.5 w-3.5" /> Details
@@ -895,7 +894,7 @@ export default function PresentationCenter() {
                             setViewerDeck(deck);
                             setViewerOpen(true);
                           }}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary h-7 px-2 text-xs"
                           title="View slides"
                         >
                           <Play className="h-3.5 w-3.5" /> View Slides
@@ -905,7 +904,7 @@ export default function PresentationCenter() {
                             setUploadRenameCandidate(deck);
                             setRenameValue(deck.name);
                           }}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary h-7 px-2 text-xs"
                           title="Rename"
                         >
                           <Edit3 className="h-3.5 w-3.5" /> Rename
@@ -916,14 +915,14 @@ export default function PresentationCenter() {
                             setReplaceKeepName(true);
                             setTimeout(() => replaceInputRef.current?.click(), 0);
                           }}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary h-7 px-2 text-xs"
                           title="Replace"
                         >
                           <Replace className="h-3.5 w-3.5" /> Replace
                         </button>
                         <button
                           onClick={() => setUploadDeleteCandidate(deck)}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          className="pe-btn h-7 border-red-200 bg-white px-2 text-xs text-red-700 hover:bg-red-50"
                           title="Delete"
                         >
                           <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -936,7 +935,7 @@ export default function PresentationCenter() {
                   <tr>
                     <td
                       colSpan={7}
-                      className="px-4 py-10 text-center text-sm text-slate-500"
+                      className="px-4 py-10 text-center text-sm text-pe-muted"
                     >
                       No uploaded files yet. Use Upload Deck to add a .pptx file.
                     </td>
@@ -947,11 +946,11 @@ export default function PresentationCenter() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#D6DFE8] bg-white p-5 shadow-sm sm:p-6">
-          <h2 className="flex items-center gap-2 text-xl font-bold text-[#0B1D44]">
-            <WandSparkles className="h-5 w-5 text-[#005BAC]" /> Generate Decks
+        <section className="pe-card p-5 sm:p-6">
+          <h2 className="pe-card__title flex items-center gap-2 text-base">
+            <WandSparkles className="h-5 w-5 text-pe-teal" /> Generate Decks
           </h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-pe-muted">
             Generators are registered through an extensible registry so future
             deck types can be added without refactoring this page.
           </p>
@@ -961,25 +960,25 @@ export default function PresentationCenter() {
               return (
                 <article
                   key={generator.id}
-                  className="flex min-h-[300px] flex-col rounded-xl border border-[#D6DFE8] bg-[#FFFFFF] p-4 shadow-sm"
+                  className="pe-card pe-card--interactive flex min-h-[300px] flex-col p-4"
                 >
-                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-[#EEF6FF] text-[#005BAC]">
+                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-pe-blue-soft text-pe-blue">
                     <Presentation className="h-5 w-5" />
                   </div>
-                  <h3 className="font-bold text-[#0B1D44]">
+                  <h3 className="font-bold text-pe-text-strong">
                     {generator.title}
                   </h3>
-                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[#005BAC]">
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-pe-blue-ink">
                     {generator.category}
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                  <p className="mt-2 text-sm leading-6 text-pe-muted">
                     {generator.description}
                   </p>
-                  <div className="mt-3 flex-1 rounded-lg bg-[#F8FAFC] p-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <div className="mt-3 flex-1 rounded-lg bg-pe-bg p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-pe-faint">
                       Suggested slide outline
                     </p>
-                    <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-slate-600">
+                    <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-pe-muted">
                       {generator.slideOutline.map(slide => (
                         <li key={slide}>{slide}</li>
                       ))}
@@ -987,7 +986,7 @@ export default function PresentationCenter() {
                   </div>
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${generator.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}
+                      className={`pe-badge ${generator.status === "active" ? "pe-badge--success" : "pe-badge--warning"}`}
                     >
                       {generator.status === "active" ? "ACTIVE" : "Coming Soon"}
                     </span>
@@ -1001,7 +1000,7 @@ export default function PresentationCenter() {
 	                          : void runGenerator(generator.id)
 	                      }
                       disabled={isActive}
-                      className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold transition disabled:opacity-60 ${generator.enabled ? "bg-[#005BAC] text-white hover:bg-[#004A8F]" : "border border-[#D6DFE8] bg-white text-[#005BAC] hover:bg-[#EEF6FF]"}`}
+                      className={`pe-btn ${generator.enabled ? "pe-btn--primary" : "pe-btn--secondary"}`}
                     >
                       {isActive && (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1019,13 +1018,13 @@ export default function PresentationCenter() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#D6DFE8] bg-white p-5 shadow-sm sm:p-6">
+        <section className="pe-card p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-bold text-[#0B1D44]">
+              <h2 className="pe-card__title text-base">
                 Recent Generated Presentations
               </h2>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-pe-muted">
                 PPTX files created by generators. Download, view details, or clear
                 history. Uploaded files are not affected.
               </p>
@@ -1034,14 +1033,14 @@ export default function PresentationCenter() {
               type="button"
               onClick={() => setClearGeneratedOpen(true)}
               disabled={generated.length === 0}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+              className="pe-btn border-red-200 bg-white text-red-700 hover:bg-red-50"
             >
               <Trash2 className="h-4 w-4" /> Clear Generated History
             </button>
           </div>
-          <div className="mt-4 overflow-x-auto rounded-xl border border-[#E2E8F0]">
-            <table className="min-w-full divide-y divide-[#E2E8F0] text-sm">
-              <thead className="bg-[#F1F5F9] text-left text-xs font-bold uppercase tracking-wide text-slate-600">
+          <div className="mt-4 overflow-x-auto rounded-xl border border-pe-border">
+            <table className="pe-table min-w-full text-sm">
+              <thead className="text-left">
                 <tr>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Type</th>
@@ -1050,7 +1049,7 @@ export default function PresentationCenter() {
                   <th className="px-4 py-3">Download Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#E2E8F0] bg-white">
+              <tbody>
                 {sortedGenerated.map(deck => (
                   <tr key={deck.id}>
                     <td className="px-4 py-3">
@@ -1059,16 +1058,16 @@ export default function PresentationCenter() {
                           setViewerDeck(deck);
                           setViewerOpen(true);
                         }}
-                        className="font-semibold text-[#0B1D44] hover:text-[#005BAC] hover:underline"
+                        className="pe-focusable rounded font-semibold text-pe-text-strong hover:text-pe-blue-ink hover:underline"
                         title="View slides"
                       >
                         {deck.name}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-pe-muted">
                       <div>{deck.type}</div>
                       {deck.reportingYear && deck.reportingMonth && (
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs text-pe-faint">
                           {formatReportingPeriod(
                             deck.reportingMonth,
                             deck.reportingYear
@@ -1080,7 +1079,7 @@ export default function PresentationCenter() {
                         </div>
                       )}
                       {(deck.dateFrom || deck.dateTo) && (
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs text-pe-faint">
                           {deck.dateFrom && deck.dateTo
                             ? `${deck.dateFrom} to ${deck.dateTo}`
                             : deck.dateFrom
@@ -1089,22 +1088,22 @@ export default function PresentationCenter() {
                         </div>
                       )}
                       {(deck.equipmentType || deck.category || deck.inspector) && (
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs text-pe-faint">
                           {[deck.equipmentType, deck.category, deck.inspector]
                             .filter(Boolean)
                             .join(" • ")}
                         </div>
                       )}
                       {deck.template && (
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs text-pe-faint">
                           Template: {deck.template}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-pe-muted">
                       {formatDate(deck.generatedDate)}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-pe-muted">
                       {deck.generatedBy}
                     </td>
                     <td className="px-3 py-2">
@@ -1114,14 +1113,14 @@ export default function PresentationCenter() {
                             setViewerDeck(deck);
                             setViewerOpen(true);
                           }}
-                          className="col-span-1 inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary col-span-1 h-7 px-2 text-xs"
                           title="View slides"
                         >
                           <Play className="h-3.5 w-3.5" /> View Slides
                         </button>
                         <button
                           onClick={() => downloadDataUrl(deck.dataUrl, deck.name)}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary h-7 px-2 text-xs"
                           title="Download latest file"
                         >
                           <Download className="h-3.5 w-3.5" /> Download
@@ -1131,14 +1130,14 @@ export default function PresentationCenter() {
                             setViewerDeck(deck);
                             setViewerOpen(true);
                           }}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#D6DFE8] px-3 py-1.5 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary h-7 px-2 text-xs"
                           title="View slides"
                         >
                           <Play className="h-3.5 w-3.5" /> View Slides
                         </button>
                         <button
                           onClick={() => setGeneratedDetailCandidate(deck)}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-[#D6DFE8] bg-white px-2 text-xs font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                          className="pe-btn pe-btn--secondary h-7 px-2 text-xs"
                           title="View details"
                         >
                           <Eye className="h-3.5 w-3.5" /> Details
@@ -1147,7 +1146,7 @@ export default function PresentationCenter() {
                         <div aria-hidden="true" />
                         <button
                           onClick={() => setGeneratedDeleteCandidate(deck)}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          className="pe-btn h-7 border-red-200 bg-white px-2 text-xs text-red-700 hover:bg-red-50"
                           title="Delete history entry"
                         >
                           <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -1160,7 +1159,7 @@ export default function PresentationCenter() {
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-4 py-10 text-center text-sm text-slate-500"
+                      className="px-4 py-10 text-center text-sm text-pe-muted"
                     >
                       No generated presentations yet. Generate a Monthly KPI
                       Scorecard deck to populate this table.
@@ -1174,22 +1173,22 @@ export default function PresentationCenter() {
       </main>
 
       {monthlyKpiDialogOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="monthly-kpi-pptx-title"
             className="w-full max-w-2xl rounded-xl bg-white shadow-2xl"
           >
-            <div className="flex items-start justify-between gap-4 border-b border-[#E2E8F0] px-5 py-4">
+            <div className="flex items-start justify-between gap-4 border-b border-pe-border px-5 py-4">
               <div>
                 <h2
                   id="monthly-kpi-pptx-title"
-                  className="text-lg font-bold text-[#0B1D44]"
+                  className="text-lg font-bold text-pe-text-strong"
                 >
                   Generate Monthly KPI PPTX
                 </h2>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-pe-muted">
                   Select persisted Monthly KPI records for the Executive
                   Scorecard deck.
                 </p>
@@ -1202,7 +1201,7 @@ export default function PresentationCenter() {
                   setMonthlyKpiDialogGeneratorId(null);
                 }}
                 disabled={activeGeneratorId === monthlyKpiDialogGeneratorId}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D6DFE8] text-slate-600 hover:bg-[#F8FAFC] disabled:opacity-60"
+                className="pe-btn pe-btn--ghost h-9 w-9 border-pe-border disabled:opacity-60"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1210,8 +1209,8 @@ export default function PresentationCenter() {
 
             <div className="space-y-4 px-5 py-5">
               {monthlyKpiOptionsLoading && (
-                <div className="flex items-center gap-2 rounded-lg border border-[#D6DFE8] bg-[#F8FBFF] px-3 py-2 text-sm text-slate-600">
-                  <Loader2 className="h-4 w-4 animate-spin text-[#005BAC]" />
+                <div className="flex items-center gap-2 rounded-lg border border-pe-border bg-pe-blue-soft px-3 py-2 text-sm text-pe-muted">
+                  <Loader2 className="h-4 w-4 animate-spin text-pe-blue-ink" />
                   Loading persisted Monthly KPI records...
                 </div>
               )}
@@ -1223,7 +1222,7 @@ export default function PresentationCenter() {
               )}
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Reporting Year
                   <select
                     value={monthlyKpiSelection.reportingYear}
@@ -1237,7 +1236,7 @@ export default function PresentationCenter() {
                       monthlyKpiOptionsLoading ||
                       monthlyKpiOptions.years.length === 0
                     }
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {monthlyKpiOptions.years.length ? (
                       monthlyKpiOptions.years.map(year => (
@@ -1251,7 +1250,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Reporting Month
                   <select
                     value={monthlyKpiSelection.reportingMonth}
@@ -1265,7 +1264,7 @@ export default function PresentationCenter() {
                       monthlyKpiOptionsLoading ||
                       monthlyKpiOptions.months.length === 0
                     }
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {monthlyKpiOptions.months.length ? (
                       monthlyKpiOptions.months.map(month => (
@@ -1279,7 +1278,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Business Unit
                   <select
                     value={monthlyKpiSelection.businessUnit}
@@ -1290,7 +1289,7 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={monthlyKpiOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {monthlyKpiBusinessUnitOptions.map(unit => (
                       <option key={unit} value={unit}>
@@ -1300,7 +1299,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Template
                   <select
                     value={monthlyKpiSelection.template}
@@ -1311,7 +1310,7 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={monthlyKpiOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {MONTHLY_KPI_TEMPLATE_OPTIONS.map(template => (
                       <option key={template} value={template}>
@@ -1323,7 +1322,7 @@ export default function PresentationCenter() {
               </div>
             </div>
 
-            <div className="flex flex-col-reverse gap-3 border-t border-[#E2E8F0] px-5 py-4 sm:flex-row sm:items-center sm:justify-end">
+            <div className="flex flex-col-reverse gap-3 border-t border-pe-border px-5 py-4 sm:flex-row sm:items-center sm:justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -1331,7 +1330,7 @@ export default function PresentationCenter() {
                   setMonthlyKpiDialogGeneratorId(null);
                 }}
                 disabled={activeGeneratorId === monthlyKpiDialogGeneratorId}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF] disabled:opacity-60"
+                className="pe-btn pe-btn--secondary disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -1342,7 +1341,7 @@ export default function PresentationCenter() {
                   !monthlyKpiCanGenerate ||
                   activeGeneratorId === monthlyKpiDialogGeneratorId
                 }
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F] disabled:opacity-60"
+                className="pe-btn pe-btn--primary disabled:opacity-60"
               >
                 {activeGeneratorId === monthlyKpiDialogGeneratorId && (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1355,22 +1354,22 @@ export default function PresentationCenter() {
       )}
 
       {odmDialogOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="odm-pptx-title"
             className="w-full max-w-2xl rounded-xl bg-white shadow-2xl"
           >
-            <div className="flex items-start justify-between gap-4 border-b border-[#E2E8F0] px-5 py-4">
+            <div className="flex items-start justify-between gap-4 border-b border-pe-border px-5 py-4">
               <div>
                 <h2
                   id="odm-pptx-title"
-                  className="text-lg font-bold text-[#0B1D44]"
+                  className="text-lg font-bold text-pe-text-strong"
                 >
                   Generate Operator-Driven Maintenance PPTX
                 </h2>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-pe-muted">
                   Select persisted inspection records for the Executive Summary
                   scorecard deck.
                 </p>
@@ -1383,7 +1382,7 @@ export default function PresentationCenter() {
                   setOdmDialogGeneratorId(null);
                 }}
                 disabled={activeGeneratorId === odmDialogGeneratorId}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D6DFE8] text-slate-600 hover:bg-[#F8FAFC] disabled:opacity-60"
+                className="pe-btn pe-btn--ghost h-9 w-9 border-pe-border disabled:opacity-60"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1391,8 +1390,8 @@ export default function PresentationCenter() {
 
             <div className="space-y-4 px-5 py-5">
               {odmOptionsLoading && (
-                <div className="flex items-center gap-2 rounded-lg border border-[#D6DFE8] bg-[#F8FBFF] px-3 py-2 text-sm text-slate-600">
-                  <Loader2 className="h-4 w-4 animate-spin text-[#005BAC]" />
+                <div className="flex items-center gap-2 rounded-lg border border-pe-border bg-pe-blue-soft px-3 py-2 text-sm text-pe-muted">
+                  <Loader2 className="h-4 w-4 animate-spin text-pe-blue-ink" />
                   Loading persisted Operator-Driven Maintenance records...
                 </div>
               )}
@@ -1404,7 +1403,7 @@ export default function PresentationCenter() {
               )}
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Reporting Year
                   <select
                     value={odmSelection.reportingYear}
@@ -1422,7 +1421,7 @@ export default function PresentationCenter() {
                     disabled={
                       odmOptionsLoading || odmOptions.years.length === 0
                     }
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {odmOptions.years.length ? (
                       odmOptions.years.map(year => (
@@ -1436,7 +1435,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Reporting Month
                   <select
                     value={odmSelection.reportingMonth}
@@ -1454,7 +1453,7 @@ export default function PresentationCenter() {
                     disabled={
                       odmOptionsLoading || odmOptions.months.length === 0
                     }
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {odmOptions.months.length ? (
                       odmOptions.months.map(month => (
@@ -1468,7 +1467,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Date From
                   <input
                     type="date"
@@ -1480,11 +1479,11 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={odmOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   />
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Date To
                   <input
                     type="date"
@@ -1496,11 +1495,11 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={odmOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   />
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Plant / Facility
                   <select
                     value={odmSelection.facility}
@@ -1511,7 +1510,7 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={odmOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {odmFacilityOptions.map(facility => (
                       <option key={facility} value={facility}>
@@ -1521,7 +1520,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Equipment Type
                   <select
                     value={odmSelection.equipmentType}
@@ -1532,7 +1531,7 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={odmOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {odmEquipmentTypeOptions.map(equipmentType => (
                       <option key={equipmentType || "all"} value={equipmentType}>
@@ -1542,7 +1541,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Category
                   <select
                     value={odmSelection.category}
@@ -1553,7 +1552,7 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={odmOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {odmCategoryOptions.map(category => (
                       <option key={category || "all"} value={category}>
@@ -1563,7 +1562,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Inspector
                   <select
                     value={odmSelection.inspector}
@@ -1574,7 +1573,7 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={odmOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {odmInspectorOptions.map(inspector => (
                       <option key={inspector || "all"} value={inspector}>
@@ -1584,7 +1583,7 @@ export default function PresentationCenter() {
                   </select>
                 </label>
 
-                <label className="text-sm font-semibold text-[#0B1D44]">
+                <label className="text-sm font-semibold text-pe-text-strong">
                   Template
                   <select
                     value={odmSelection.template}
@@ -1595,7 +1594,7 @@ export default function PresentationCenter() {
                       }))
                     }
                     disabled={odmOptionsLoading}
-                    className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC] disabled:bg-slate-100"
+                    className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue disabled:bg-pe-surface-sunk"
                   >
                     {ODM_TEMPLATE_OPTIONS.map(template => (
                       <option key={template} value={template}>
@@ -1607,7 +1606,7 @@ export default function PresentationCenter() {
               </div>
             </div>
 
-            <div className="flex flex-col-reverse gap-3 border-t border-[#E2E8F0] px-5 py-4 sm:flex-row sm:items-center sm:justify-end">
+            <div className="flex flex-col-reverse gap-3 border-t border-pe-border px-5 py-4 sm:flex-row sm:items-center sm:justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -1615,7 +1614,7 @@ export default function PresentationCenter() {
                   setOdmDialogGeneratorId(null);
                 }}
                 disabled={activeGeneratorId === odmDialogGeneratorId}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF] disabled:opacity-60"
+                className="pe-btn pe-btn--secondary disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -1625,7 +1624,7 @@ export default function PresentationCenter() {
                 disabled={
                   !odmCanGenerate || activeGeneratorId === odmDialogGeneratorId
                 }
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F] disabled:opacity-60"
+                className="pe-btn pe-btn--primary disabled:opacity-60"
               >
                 {activeGeneratorId === odmDialogGeneratorId && (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1638,17 +1637,17 @@ export default function PresentationCenter() {
 
       )}
       {uploadDeleteCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
           >
-            <h3 className="text-lg font-bold text-[#0B1D44]">Delete Uploaded File</h3>
-            <p className="mt-2 text-sm text-slate-600">
+            <h3 className="text-lg font-bold text-pe-text-strong">Delete Uploaded File</h3>
+            <p className="mt-2 text-sm text-pe-muted">
               Are you sure you want to delete this uploaded file?
             </p>
-            <div className="mt-4 space-y-2 rounded-lg bg-[#F8FAFC] p-3 text-sm">
+            <div className="mt-4 space-y-2 rounded-lg bg-pe-bg p-3 text-sm">
               <div>
                 <span className="font-semibold">File name:</span> {uploadDeleteCandidate.name}
               </div>
@@ -1664,24 +1663,24 @@ export default function PresentationCenter() {
                 {getUploadedFileUsage(uploadDeleteCandidate)}
               </div>
             </div>
-            <p className="mt-3 text-sm text-slate-600">
+            <p className="mt-3 text-sm text-pe-muted">
               <span className="font-semibold">What will be removed:</span> this uploaded file entry and its stored data payload.
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-pe-muted">
               <span className="font-semibold">What will NOT be removed:</span> any generated presentation history entries or other uploaded files.
             </p>
             <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={() => setUploadDeleteCandidate(null)}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                className="pe-btn pe-btn--secondary"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => confirmDeleteUploaded(uploadDeleteCandidate)}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
+                className="pe-btn pe-btn--danger"
               >
                 <Trash2 className="h-4 w-4" /> Delete File
               </button>
@@ -1691,30 +1690,30 @@ export default function PresentationCenter() {
       )}
 
       {uploadRenameCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
           >
-            <h3 className="text-lg font-bold text-[#0B1D44]">Rename Uploaded File</h3>
-            <label className="mt-4 block text-sm font-semibold text-[#0B1D44]">
+            <h3 className="text-lg font-bold text-pe-text-strong">Rename Uploaded File</h3>
+            <label className="mt-4 block text-sm font-semibold text-pe-text-strong">
               File name
               <input
                 value={renameValue}
                 onChange={event => setRenameValue(event.target.value)}
-                className="mt-1 h-10 w-full rounded-lg border border-[#D6DFE8] px-3 text-sm font-normal text-slate-700 outline-none focus:border-[#005BAC]"
+                className="pe-focusable mt-1 h-10 w-full rounded-lg border border-pe-border px-3 text-sm font-normal text-pe-text outline-none focus:border-pe-blue"
                 placeholder="file.pptx"
               />
             </label>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-pe-muted">
               Name must not be blank, must keep the .pptx extension, and cannot contain paths.
             </p>
             <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={() => closeUploadModals()}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                className="pe-btn pe-btn--secondary"
               >
                 Cancel
               </button>
@@ -1722,7 +1721,7 @@ export default function PresentationCenter() {
                 type="button"
                 onClick={() => void handleRenameSubmit()}
                 disabled={!renameValue.trim()}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F] disabled:opacity-60"
+                className="pe-btn pe-btn--primary disabled:opacity-60"
               >
                 <Edit3 className="h-4 w-4" /> Rename
               </button>
@@ -1732,14 +1731,14 @@ export default function PresentationCenter() {
       )}
 
       {uploadReplaceCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
           >
-            <h3 className="text-lg font-bold text-[#0B1D44]">Replace Uploaded File</h3>
-            <p className="mt-2 text-sm text-slate-600">
+            <h3 className="text-lg font-bold text-pe-text-strong">Replace Uploaded File</h3>
+            <p className="mt-2 text-sm text-pe-muted">
               Choose a new .pptx file for{" "}
               <span className="font-semibold">{uploadReplaceCandidate.name}</span>.
             </p>
@@ -1750,12 +1749,12 @@ export default function PresentationCenter() {
               onChange={event => void handleReplaceFileList(event.target.files)}
               className="hidden"
             />
-            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-pe-text">
               <input
                 type="checkbox"
                 checked={replaceKeepName}
                 onChange={event => setReplaceKeepName(event.target.checked)}
-                className="h-4 w-4 rounded border-[#D6DFE8] text-[#005BAC] focus:ring-[#005BAC]"
+                className="h-4 w-4 rounded border-pe-border text-pe-blue focus:ring-pe-blue"
               />
               Keep current file name
             </label>
@@ -1766,14 +1765,14 @@ export default function PresentationCenter() {
                   if (replaceInputRef.current) replaceInputRef.current.value = "";
                   closeUploadModals();
                 }}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                className="pe-btn pe-btn--secondary"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => replaceInputRef.current?.click()}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#005BAC] px-4 text-sm font-semibold text-white hover:bg-[#004A8F]"
+                className="pe-btn pe-btn--primary"
               >
                 <Replace className="h-4 w-4" /> Choose Replacement
               </button>
@@ -1783,46 +1782,46 @@ export default function PresentationCenter() {
       )}
 
       {uploadDetailCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
           >
             <div className="flex items-start justify-between gap-4">
-              <h3 className="text-lg font-bold text-[#0B1D44]">File Details</h3>
+              <h3 className="text-lg font-bold text-pe-text-strong">File Details</h3>
               <button
                 type="button"
                 aria-label="Close"
                 onClick={() => setUploadDetailCandidate(null)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D6DFE8] text-slate-600 hover:bg-[#F8FAFC]"
+                className="pe-btn pe-btn--ghost h-9 w-9 border-pe-border"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="mt-4 space-y-2 text-sm">
               <div>
-                <span className="font-semibold text-slate-600">File name:</span>{" "}
+                <span className="font-semibold text-pe-muted">File name:</span>{" "}
                 {uploadDetailCandidate.name}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">File type:</span>{" "}
+                <span className="font-semibold text-pe-muted">File type:</span>{" "}
                 {uploadDetailCandidate.category}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">Uploaded:</span>{" "}
+                <span className="font-semibold text-pe-muted">Uploaded:</span>{" "}
                 {formatDate(uploadDetailCandidate.uploadDate)}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">Uploaded by:</span>{" "}
+                <span className="font-semibold text-pe-muted">Uploaded by:</span>{" "}
                 {uploadDetailCandidate.uploadedBy}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">File size:</span>{" "}
+                <span className="font-semibold text-pe-muted">File size:</span>{" "}
                 {formatBytes(uploadDetailCandidate.size)}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">Usage:</span>{" "}
+                <span className="font-semibold text-pe-muted">Usage:</span>{" "}
                 {getUploadedFileUsage(uploadDetailCandidate)}
               </div>
             </div>
@@ -1831,17 +1830,17 @@ export default function PresentationCenter() {
       )}
 
       {generatedDeleteCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
           >
-            <h3 className="text-lg font-bold text-[#0B1D44]">Delete Generated Presentation</h3>
-            <p className="mt-2 text-sm text-slate-600">
+            <h3 className="text-lg font-bold text-pe-text-strong">Delete Generated Presentation</h3>
+            <p className="mt-2 text-sm text-pe-muted">
               Remove this generated presentation from recent history?
             </p>
-            <div className="mt-4 rounded-lg bg-[#F8FAFC] p-3 text-sm">
+            <div className="mt-4 rounded-lg bg-pe-bg p-3 text-sm">
               <div>
                 <span className="font-semibold">Name:</span> {generatedDeleteCandidate.name}
               </div>
@@ -1853,21 +1852,21 @@ export default function PresentationCenter() {
                 {formatDate(generatedDeleteCandidate.generatedDate)}
               </div>
             </div>
-            <p className="mt-3 text-sm text-slate-600">
+            <p className="mt-3 text-sm text-pe-muted">
               <span className="font-semibold">What will NOT be removed:</span> uploaded files and other generated presentations.
             </p>
             <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={() => setGeneratedDeleteCandidate(null)}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                className="pe-btn pe-btn--secondary"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => confirmDeleteGenerated(generatedDeleteCandidate)}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
+                className="pe-btn pe-btn--danger"
               >
                 <Trash2 className="h-4 w-4" /> Delete Entry
               </button>
@@ -1877,53 +1876,53 @@ export default function PresentationCenter() {
       )}
 
       {generatedDetailCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
           >
             <div className="flex items-start justify-between gap-4">
-              <h3 className="text-lg font-bold text-[#0B1D44]">Generated Presentation Details</h3>
+              <h3 className="text-lg font-bold text-pe-text-strong">Generated Presentation Details</h3>
               <button
                 type="button"
                 aria-label="Close"
                 onClick={() => setGeneratedDetailCandidate(null)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D6DFE8] text-slate-600 hover:bg-[#F8FAFC]"
+                className="pe-btn pe-btn--ghost h-9 w-9 border-pe-border"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="mt-4 space-y-2 text-sm">
               <div>
-                <span className="font-semibold text-slate-600">Name:</span>{" "}
+                <span className="font-semibold text-pe-muted">Name:</span>{" "}
                 {generatedDetailCandidate.name}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">Type:</span>{" "}
+                <span className="font-semibold text-pe-muted">Type:</span>{" "}
                 {generatedDetailCandidate.type}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">Generated:</span>{" "}
+                <span className="font-semibold text-pe-muted">Generated:</span>{" "}
                 {formatDate(generatedDetailCandidate.generatedDate)}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">Generated by:</span>{" "}
+                <span className="font-semibold text-pe-muted">Generated by:</span>{" "}
                 {generatedDetailCandidate.generatedBy}
               </div>
               <div>
-                <span className="font-semibold text-slate-600">Size:</span>{" "}
+                <span className="font-semibold text-pe-muted">Size:</span>{" "}
                 {formatBytes(generatedDetailCandidate.size)}
               </div>
               {generatedDetailCandidate.generatorName && (
                 <div>
-                  <span className="font-semibold text-slate-600">Generator:</span>{" "}
+                  <span className="font-semibold text-pe-muted">Generator:</span>{" "}
                   {generatedDetailCandidate.generatorName}
                 </div>
               )}
               {generatedDetailCandidate.template && (
                 <div>
-                  <span className="font-semibold text-slate-600">Template:</span>{" "}
+                  <span className="font-semibold text-pe-muted">Template:</span>{" "}
                   {generatedDetailCandidate.template}
                 </div>
               )}
@@ -1933,34 +1932,34 @@ export default function PresentationCenter() {
       )}
 
       {clearGeneratedOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
           >
-            <h3 className="text-lg font-bold text-[#0B1D44]">Clear Generated History</h3>
-            <p className="mt-2 text-sm text-slate-600">
+            <h3 className="text-lg font-bold text-pe-text-strong">Clear Generated History</h3>
+            <p className="mt-2 text-sm text-pe-muted">
               This will remove all {generated.length} generated presentation history entries.
             </p>
-            <p className="mt-3 text-sm text-slate-600">
+            <p className="mt-3 text-sm text-pe-muted">
               <span className="font-semibold">What will be removed:</span> all generated PPTX history rows.
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-pe-muted">
               <span className="font-semibold">What will NOT be removed:</span> uploaded files in the Deck Library.
             </p>
             <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={() => setClearGeneratedOpen(false)}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                className="pe-btn pe-btn--secondary"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => confirmClearGeneratedHistory()}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
+                className="pe-btn pe-btn--danger"
               >
                 <Trash2 className="h-4 w-4" /> Clear History
               </button>
@@ -1970,14 +1969,14 @@ export default function PresentationCenter() {
       )}
 
       {cleanupDuplicatesOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             className="w-full max-w-2xl rounded-xl bg-white p-5 shadow-2xl"
           >
-            <h3 className="text-lg font-bold text-[#0B1D44]">Clean Up Duplicate Uploads</h3>
-            <p className="mt-2 text-sm text-slate-600">
+            <h3 className="text-lg font-bold text-pe-text-strong">Clean Up Duplicate Uploads</h3>
+            <p className="mt-2 text-sm text-pe-muted">
               This is a dry-run preview of duplicate uploaded file entries that will be removed, keeping the newest copy.
             </p>
             {cleanupDuplicatesPreview.length === 0 ? (
@@ -1985,16 +1984,16 @@ export default function PresentationCenter() {
                 No duplicate uploaded files found.
               </p>
             ) : (
-              <div className="mt-4 max-h-64 overflow-auto rounded-lg border border-[#E2E8F0]">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-[#F1F5F9] text-left text-xs font-bold uppercase tracking-wide text-slate-600">
+              <div className="mt-4 max-h-64 overflow-auto rounded-lg border border-pe-border">
+                <table className="pe-table min-w-full text-sm">
+                  <thead className="text-left">
                     <tr>
                       <th className="px-4 py-2">File Name</th>
                       <th className="px-4 py-2">Uploaded Date</th>
                       <th className="px-4 py-2">File Size</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#E2E8F0]">
+                  <tbody>
                     {cleanupDuplicatesPreview.map(deck => (
                       <tr key={deck.id}>
                         <td className="px-4 py-2">{deck.name}</td>
@@ -2006,7 +2005,7 @@ export default function PresentationCenter() {
                 </table>
               </div>
             )}
-            <p className="mt-3 text-sm text-slate-600">
+            <p className="mt-3 text-sm text-pe-muted">
               <span className="font-semibold">What will NOT be removed:</span> the newest copy of each duplicate group, and any generated presentation history.
             </p>
             <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -2016,7 +2015,7 @@ export default function PresentationCenter() {
                   setCleanupDuplicatesOpen(false);
                   setCleanupDuplicatesPreview([]);
                 }}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D6DFE8] px-4 text-sm font-semibold text-[#005BAC] hover:bg-[#EEF6FF]"
+                className="pe-btn pe-btn--secondary"
               >
                 Cancel
               </button>
@@ -2024,7 +2023,7 @@ export default function PresentationCenter() {
                 type="button"
                 onClick={() => confirmCleanupDuplicates()}
                 disabled={cleanupDuplicatesPreview.length === 0}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                className="pe-btn pe-btn--danger disabled:opacity-60"
               >
                 <Trash2 className="h-4 w-4" /> Confirm Cleanup
               </button>
@@ -2034,7 +2033,7 @@ export default function PresentationCenter() {
       )}
 
       {viewerOpen && viewerDeck && (
-        <div className="fixed inset-0 z-[60] flex flex-col bg-slate-950">
+        <div className="fixed inset-0 z-[120] flex flex-col bg-slate-950">
           <PptxViewer
             fileUrl={viewerDeck.dataUrl}
             fileName={viewerDeck.name}
