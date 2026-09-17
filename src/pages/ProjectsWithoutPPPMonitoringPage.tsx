@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
-import { MODULE_IDENTITY, ModuleMasthead, SuiteMasthead } from "@/components/programs";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 import {
   Dialog,
@@ -63,17 +63,20 @@ function clearStoredDeleteCapability(fileId: number) {
   }
 }
 
-// Status meaning is semantic and never brand-tinted: submitted reads success,
-// pending reads warning. The dot keeps the state legible without relying on
-// colour alone.
 function StatusBadge({ status }: { status: "submitted" | "not_submitted" }) {
   const submitted = status === "submitted";
   return (
-    <span className={`pe-badge ${submitted ? "pe-badge--success" : "pe-badge--warning"}`}>
+    <span
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap"
+      style={{
+        background: submitted ? "#D1FAE5" : "#FEF3C7",
+        color: submitted ? "#047857" : "#B45309",
+        border: `1px solid ${submitted ? "#A7F3D0" : "#FDE68A"}`,
+      }}
+    >
       <span
         className="w-1.5 h-1.5 rounded-full"
-        aria-hidden="true"
-        style={{ background: submitted ? "var(--pe-success)" : "var(--pe-warning)" }}
+        style={{ background: submitted ? "#0F9D6B" : "#C2740A" }}
       />
       {SUBMISSION_STATUS_LABELS[status]}
     </span>
@@ -84,22 +87,24 @@ function KpiCard({ label, value, sub, tone }: {
   label: string;
   value: string | number;
   sub?: string;
-  tone: "neutral" | "success" | "warning" | "brand";
+  tone: "navy" | "green" | "amber" | "blue";
 }) {
-  // Brand tones carry the suite identity; success/warning keep their meaning.
-  const tones: Record<string, { tint: string; text: string; bar: string }> = {
-    neutral: { tint: "var(--pe-surface-sunk)", text: "var(--pe-text-strong)", bar: "var(--pe-blue)" },
-    success: { tint: "var(--pe-success-bg)", text: "var(--pe-success)", bar: "var(--pe-success)" },
-    warning: { tint: "var(--pe-warning-bg)", text: "var(--pe-warning)", bar: "var(--pe-warning)" },
-    brand: { tint: "var(--pe-blue-soft)", text: "var(--pe-blue-ink)", bar: "var(--pe-blue)" },
+  const tones: Record<string, { bg: string; text: string; bar: string }> = {
+    navy: { bg: "rgba(11,29,68,0.06)", text: "#1B2830", bar: "#1B2830" },
+    green: { bg: "rgba(5,150,105,0.08)", text: "#047857", bar: "#0F9D6B" },
+    amber: { bg: "rgba(217,119,6,0.08)", text: "#B45309", bar: "#C2740A" },
+    blue: { bg: "rgba(0,91,172,0.08)", text: "#258AC1", bar: "#258AC1" },
   };
   const t = tones[tone];
   return (
-    <div className="pe-card p-4 flex flex-col gap-1 min-w-0">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-pe-muted truncate">{label}</span>
+    <div
+      className="rounded-xl border p-4 flex flex-col gap-1 min-w-0"
+      style={{ background: "#FFFFFF", borderColor: "#DCE6EA", boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}
+    >
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-[#56636B] truncate">{label}</span>
       <span className="text-2xl font-extrabold leading-none" style={{ color: t.text }}>{value}</span>
-      {sub ? <span className="text-[11px] text-pe-faint">{sub}</span> : <span className="text-[11px] text-transparent select-none">·</span>}
-      <div className="mt-1 h-1 rounded-full" style={{ background: t.tint }}>
+      {sub ? <span className="text-[11px] text-[#7C8A93]">{sub}</span> : <span className="text-[11px] text-transparent select-none">·</span>}
+      <div className="mt-1 h-1 rounded-full" style={{ background: t.bg }}>
         <div className="h-1 rounded-full" style={{ width: "100%", background: t.bar }} />
       </div>
     </div>
@@ -110,13 +115,13 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
   const s: Record<string, string> = {
     error: "bg-red-50 border-red-200 text-red-800",
     success: "bg-green-50 border-green-200 text-green-800",
-    info: "bg-pe-blue-soft border-pe-blue-border text-pe-blue-ink",
+    info: "bg-blue-50 border-blue-200 text-blue-800",
   };
   return (
     <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
       <span>{type === "error" ? "⚠️" : type === "success" ? "✅" : "ℹ️"}</span>
       <span className="flex-1">{message}</span>
-      {onDismiss && <button type="button" onClick={onDismiss} className="pe-focusable text-lg leading-none opacity-60 hover:opacity-100 rounded">×</button>}
+      {onDismiss && <button type="button" onClick={onDismiss} className="text-lg leading-none opacity-60 hover:opacity-100">×</button>}
     </div>
   );
 }
@@ -130,12 +135,12 @@ function FilterSelect({ label, value, options, onChange }: {
   const normalized = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
   return (
     <label className="flex flex-col gap-0.5 min-w-[130px]">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-pe-faint">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#7C8A93]">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="pe-focusable text-xs border rounded-lg px-2 py-1.5 bg-white text-pe-text focus:outline-none focus:border-pe-blue"
-        style={{ borderColor: "var(--pe-border)" }}
+        className="text-xs border rounded-lg px-2 py-1.5 bg-white text-[#1B2830] focus:outline-none focus:ring-1 focus:ring-[#258AC1]"
+        style={{ borderColor: "#DCE6EA" }}
       >
         <option value="">All</option>
         {normalized.map((o) => (
@@ -468,53 +473,53 @@ export default function ProjectsWithoutPPPMonitoringPage() {
   }, [detail]);
 
   return (
-    <div className="odm-canvas min-h-screen text-pe-text" style={{ fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif" }}>
-      {/* Suite identity sits above module identity — the dark navy header is
-          replaced by the white Programs Engineering mastheads. */}
-      <SuiteMasthead
-        actions={
-          <Link to="/" className="pe-btn pe-btn--secondary" style={{ textDecoration: "none" }}>
+    <div className="odm-canvas min-h-screen" style={{ fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif" }}>
+      {/* Header */}
+      <header style={{ background: "var(--pe-white)", color: "var(--pe-text)", position: "sticky", top: 0, zIndex: 100, boxShadow: "var(--odm-shadow-sm)" }}>
+        <div style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, textDecoration: "none", color: "inherit" }}>
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-[15px] font-bold truncate" style={{ letterSpacing: "-0.2px", lineHeight: 1.2 }}>
+                {MODULE_TITLE}
+              </h1>
+              <span className="text-[10px] block mt-0.5 opacity-100" style={{ textTransform: "uppercase", letterSpacing: "1.5px" }}>
+                Monitoring
+              </span>
+            </div>
+          </Link>
+          <Link to="/" className="text-xs font-medium px-3 py-1.5 bg-pe-blue-soft border border-pe-blue-border rounded-lg text-pe-blue-ink hover:bg-pe-blue-border transition">
             ← Dashboard Suite
           </Link>
-        }
-      />
+        </div>
+      </header>
 
-      <ModuleMasthead
-        showIdentityRow={false}
-        icon={MODULE_IDENTITY.projectsWithoutPpp.icon}
-        tone={MODULE_IDENTITY.projectsWithoutPpp.tone}
-        title={MODULE_TITLE}
-        subtitle="Masterdata submittal monitoring across the 50-project population."
-        actions={
-          <span className="pe-badge pe-badge--blue">Monitoring</span>
-        }
-      />
-
-      <main className="pe-section">
+      <main style={{ maxWidth: 1500, margin: "0 auto", padding: "20px 16px 48px" }}>
         {banner && <Banner type={banner.type} message={banner.message} onDismiss={() => setBanner(null)} />}
 
-        {/* KPI tiles */}
+        {/* KPI cards */}
         <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
-          <KpiCard label="Total Projects" value={kpis?.totalProjects ?? 0} sub="authoritative population" tone="neutral" />
-          <KpiCard label="Submitted" value={kpis?.submitted ?? 0} sub="projects with current masterdata" tone="success" />
-          <KpiCard label="Not Submitted" value={kpis?.notSubmitted ?? 0} sub="projects pending masterdata" tone="warning" />
-          <KpiCard label="Submission Rate" value={`${kpis?.submissionRate ?? 0}%`} sub="submitted / total × 100" tone="brand" />
-          <KpiCard label="Total Files Submitted" value={kpis?.totalFiles ?? 0} sub="current masterdata files" tone="brand" />
-          <KpiCard label="Submitted Today" value={kpis?.submittedToday ?? 0} sub={`this week: ${kpis?.submittedThisWeek ?? 0}`} tone="success" />
+          <KpiCard label="Total Projects" value={kpis?.totalProjects ?? 0} sub="authoritative population" tone="navy" />
+          <KpiCard label="Submitted" value={kpis?.submitted ?? 0} sub="projects with current masterdata" tone="green" />
+          <KpiCard label="Not Submitted" value={kpis?.notSubmitted ?? 0} sub="projects pending masterdata" tone="amber" />
+          <KpiCard label="Submission Rate" value={`${kpis?.submissionRate ?? 0}%`} sub="submitted / total × 100" tone="blue" />
+          <KpiCard label="Total Files Submitted" value={kpis?.totalFiles ?? 0} sub="current masterdata files" tone="blue" />
+          <KpiCard label="Submitted Today" value={kpis?.submittedToday ?? 0} sub={`this week: ${kpis?.submittedThisWeek ?? 0}`} tone="green" />
         </section>
 
         {/* Filters */}
-        <section className="pe-card p-4 mb-4">
+        <section className="rounded-xl border p-4 mb-4" style={{ background: "#FFFFFF", borderColor: "#DCE6EA" }}>
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-            <h2 className="pe-card__title">Projects without PPP — Masterdata Submittal</h2>
+            <h2 className="text-sm font-bold text-[#1B2830]">Projects without PPP — Masterdata Submittal</h2>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-pe-muted">
+              <span className="text-[11px] text-[#56636B]">
                 Showing {filteredRows.length} of {allRows.length} projects
               </span>
               <button
                 type="button"
                 onClick={clearFilters}
-                className="pe-btn pe-btn--secondary px-2.5 py-1 text-[11px]"
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border hover:bg-gray-50 text-[#56636B]"
+                style={{ borderColor: "#DCE6EA" }}
               >
                 Clear filters
               </button>
@@ -522,14 +527,14 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           </div>
           <div className="flex gap-3 flex-wrap items-end">
             <label className="flex flex-col gap-0.5 flex-1 min-w-[220px] max-w-[340px]">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-pe-faint">Search</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#7C8A93]">Search</span>
               <input
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Tracking ID, PS Code, project name, contractor…"
-                className="pe-focusable text-xs border rounded-lg px-2.5 py-1.5 bg-white text-pe-text focus:outline-none focus:border-pe-blue"
-                style={{ borderColor: "var(--pe-border)" }}
+                className="text-xs border rounded-lg px-2.5 py-1.5 bg-white text-[#1B2830] focus:outline-none focus:ring-1 focus:ring-[#258AC1]"
+                style={{ borderColor: "#DCE6EA" }}
               />
             </label>
             <FilterSelect
@@ -559,17 +564,17 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           </div>
         </section>
 
-        {/* Monitoring table — density preserved, hierarchy clarified */}
-        <section className="pe-card overflow-hidden">
+        {/* Monitoring table */}
+        <section className="rounded-xl border overflow-hidden" style={{ background: "#FFFFFF", borderColor: "#DCE6EA" }}>
           <div className="max-h-[65vh] overflow-auto">
-            <table className="pe-table border-collapse text-left text-xs">
+            <table className="w-full border-collapse text-left text-xs">
               <thead>
-                <tr>
+                <tr style={{ background: "#F5F9FA" }}>
                   {TABLE_HEADERS.map((h, index) => (
                     <th
                       key={h.key}
-                      className={`px-3 py-2.5 font-bold uppercase tracking-wide text-pe-text-muted whitespace-nowrap border-b sticky top-0 ${index === 0 ? "sticky left-0 z-30" : "z-20"}`}
-                      style={{ minWidth: h.minWidth, background: "var(--pe-table-header)" }}
+                      className={`px-3 py-2.5 font-bold text-[10px] uppercase tracking-wide text-[#56636B] whitespace-nowrap border-b sticky top-0 ${index === 0 ? "sticky left-0 z-30" : "z-20"}`}
+                      style={{ minWidth: h.minWidth, borderColor: "#DCE6EA", background: index === 0 ? "#F5F9FA" : "#F5F9FA" }}
                     >
                       {h.label}
                     </th>
@@ -579,25 +584,32 @@ export default function ProjectsWithoutPPPMonitoringPage() {
               <tbody>
                 {isLoading && allRows.length === 0 ? (
                   <tr>
-                    <td colSpan={TABLE_HEADERS.length} className="px-3 py-10 text-center text-sm text-pe-faint">
+                    <td colSpan={TABLE_HEADERS.length} className="px-3 py-10 text-center text-sm text-gray-400">
                       Loading authoritative project population…
                     </td>
                   </tr>
                 ) : filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={TABLE_HEADERS.length} className="px-3 py-10 text-center text-sm text-pe-faint">
+                    <td colSpan={TABLE_HEADERS.length} className="px-3 py-10 text-center text-sm text-gray-400">
                       No projects match the current filters.
                     </td>
                   </tr>
                 ) : (
                   filteredRows.map((row) => (
-                    <tr key={row.id}>
-                      <td className="px-3 py-2.5 font-bold text-pe-blue-ink whitespace-nowrap sticky left-0 z-10" style={{ background: "var(--pe-white)" }}>{row.trackingId}</td>
+                    <tr
+                      key={row.id}
+                      style={{ borderTop: "1px solid #EFF3F7" }}
+                    >
+                      <td className="px-3 py-2.5 font-bold text-[#258AC1] whitespace-nowrap sticky left-0 z-10" style={{ background: "#FFFFFF" }}>{row.trackingId}</td>
                       <td className="px-3 py-2.5"><StatusBadge status={row.status} /></td>
-                      <td className="px-3 py-2.5 text-pe-text-strong font-semibold min-w-[220px]">{row.projectName || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#1B2830] font-semibold min-w-[220px]">{row.projectName || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span
-                          className={`pe-badge ${row.projectPhase === "Construction" ? "pe-badge--blue" : "pe-badge--teal"}`}
+                          className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          style={{
+                            background: row.projectPhase === "Construction" ? "#E0E7FF" : "#E6F5EF",
+                            color: row.projectPhase === "Construction" ? "#4338CA" : "#047857",
+                          }}
                         >
                           {row.projectPhase}
                         </span>
@@ -605,43 +617,40 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.projectManager || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.constructionManager || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.amdGridHead || "—"}</td>
-                      <td className="px-3 py-2.5 text-center font-bold text-pe-text-strong">{row.fileCount}</td>
-                      <td className="px-3 py-2.5 text-pe-muted whitespace-nowrap">
+                      <td className="px-3 py-2.5 text-center font-bold text-[#1B2830]">{row.fileCount}</td>
+                      <td className="px-3 py-2.5 text-[#56636B] whitespace-nowrap">
                         {row.latestSubmission ? (
                           <span className="flex flex-col gap-0.5">
-                            <span className="font-semibold text-pe-text-strong max-w-[180px] truncate" title={row.latestSubmission.fileName}>
+                            <span className="font-semibold text-[#1B2830] max-w-[180px] truncate" title={row.latestSubmission.fileName}>
                               {row.latestSubmission.fileName}
                             </span>
-                            <span className="text-[10px] text-pe-faint">{formatDateTime(row.latestSubmission.submittedAt)}</span>
+                            <span className="text-[10px] text-[#7C8A93]">{formatDateTime(row.latestSubmission.submittedAt)}</span>
                           </span>
                         ) : (
                           "—"
                         )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{submitterLabel(row)}</td>
-                      <td className="px-3 py-2.5 text-pe-muted whitespace-nowrap">{row.psCode}</td>
+                      <td className="px-3 py-2.5 text-[#334155] whitespace-nowrap">{row.psCode}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.majorProjectTag || "—"}</td>
-                      <td className="px-3 py-2.5 text-pe-muted min-w-[200px]">{row.contractor || "—"}</td>
-                      <td className="px-3 py-2.5 text-pe-muted min-w-[200px]">{row.workPackage || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#56636B] min-w-[200px]">{row.contractor || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#56636B] min-w-[200px]">{row.workPackage || "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{row.withLSPs ? LS_PS_LABELS.yes : LS_PS_LABELS.no}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleRowUpload(row.id)}
-                            className={`pe-btn px-2.5 py-1 text-[11px] ${row.status === "submitted" ? "pe-btn--primary" : ""}`}
-                            style={
-                              row.status === "submitted"
-                                ? undefined
-                                : { background: "var(--pe-warning)", color: "var(--pe-white)" }
-                            }
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-white hover:opacity-90"
+                            style={{ background: row.status === "submitted" ? "#258AC1" : "#C2740A" }}
                           >
                             Upload
                           </button>
                           <button
                             type="button"
                             onClick={() => openHistory(row.id)}
-                            className="pe-btn pe-btn--secondary px-2.5 py-1 text-[11px]"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold border hover:bg-gray-50"
+                            style={{ borderColor: "#DCE6EA", color: "#258AC1" }}
                           >
                             View History
                           </button>
@@ -658,7 +667,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
 
       {/* Upload Masterdata modal — centered dialog in front of the dashboard */}
       <Dialog open={uploadModalOpen} onOpenChange={onUploadModalOpenChange}>
-        <DialogContent className="z-[110] sm:max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Upload Masterdata</DialogTitle>
             <DialogDescription>
@@ -669,29 +678,29 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           </DialogHeader>
 
           {/* Selected project context */}
-          <div className="flex flex-col gap-1 text-xs text-pe-text-strong">
+          <div className="flex flex-col gap-1 text-xs text-[#1B2830]">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-pe-muted">Project</span>
+              <span className="text-[#56636B]">Project</span>
               <span className="font-semibold text-right">{detailProject?.projectName ?? "—"}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-pe-muted">Tracking ID</span>
+              <span className="text-[#56636B]">Tracking ID</span>
               <span className="font-semibold">{detailProject?.trackingId ?? "—"}</span>
             </div>
           </div>
 
           {/* Allowed formats / size */}
-          <p className="text-xs text-pe-muted">
+          <p className="text-xs text-[#56636B]">
             Allowed formats: Excel (.xlsx, .xls) and PDF (.pdf). Maximum file size: 150 MB.
           </p>
-          <p className="text-xs text-pe-muted">
+          <p className="text-xs text-[#56636B]">
             No account required. The project will be marked Submitted after the upload is finalized.
           </p>
 
           {/* File picker / drop area */}
           <label
-            className="pe-focusable block rounded-xl border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors hover:bg-pe-bg"
-            style={{ borderColor: selectedFile ? "var(--pe-success)" : "var(--pe-border-strong)", background: "var(--pe-bg)" }}
+            className="block rounded-xl border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors hover:bg-gray-50"
+            style={{ borderColor: selectedFile ? "#0F9D6B" : "#C2D4DB", background: "#F5F9FA" }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -710,11 +719,11 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             />
             {selectedFile ? (
               <span className="flex flex-col items-center gap-1">
-                <span className="text-sm font-bold text-pe-text-strong break-all">{selectedFile.name}</span>
-                <span className="text-xs text-pe-muted">{formatFileSize(selectedFile.size)}</span>
+                <span className="text-sm font-bold text-[#1B2830] break-all">{selectedFile.name}</span>
+                <span className="text-xs text-[#56636B]">{formatFileSize(selectedFile.size)}</span>
               </span>
             ) : (
-              <span className="text-xs text-pe-muted">
+              <span className="text-xs text-[#56636B]">
                 Click to choose a file or drag &amp; drop it here
               </span>
             )}
@@ -727,16 +736,16 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             </div>
           )}
 
-          {/* Upload progress — the suite's blue → teal sweep, made functional */}
+          {/* Upload progress */}
           {isUploading && (
             <div className="flex flex-col gap-1">
-              <div className="text-xs text-pe-muted">{uploadLabel}</div>
-              <div className="h-2 rounded-full overflow-hidden bg-pe-surface-sunk">
+              <div className="text-xs text-[#56636B]">{uploadLabel}</div>
+              <div className="h-2 rounded-full overflow-hidden bg-gray-200">
                 <div
                   className="h-full rounded-full transition-all duration-300 ease-out"
                   style={{
                     width: `${Math.min(100, Math.max(5, uploadProgress))}%`,
-                    background: "var(--pe-gradient)",
+                    background: "linear-gradient(90deg, #258AC1 0%, #3B82F6 50%, #258AC1 100%)",
                   }}
                 />
               </div>
@@ -748,7 +757,8 @@ export default function ProjectsWithoutPPPMonitoringPage() {
               type="button"
               onClick={() => onUploadModalOpenChange(false)}
               disabled={isUploading}
-              className="pe-btn pe-btn--secondary text-xs"
+              className="px-4 py-2 rounded-lg text-xs font-bold text-[#56636B] border hover:bg-gray-50 disabled:opacity-50"
+              style={{ borderColor: "#DCE6EA" }}
             >
               Cancel
             </button>
@@ -756,7 +766,8 @@ export default function ProjectsWithoutPPPMonitoringPage() {
               type="button"
               onClick={() => void startUpload()}
               disabled={!selectedFile || isUploading}
-              className="pe-btn pe-btn--primary text-xs"
+              className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
+              style={{ background: "#258AC1" }}
             >
               {isUploading ? "Uploading…" : "Upload"}
             </button>
@@ -766,7 +777,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
 
       {/* Submission History modal — centered dialog, no inline expansion */}
       <Dialog open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
-        <DialogContent className="z-[110] sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Submission History</DialogTitle>
             <DialogDescription>
@@ -777,48 +788,47 @@ export default function ProjectsWithoutPPPMonitoringPage() {
           </DialogHeader>
 
           <div className="overflow-x-auto">
-            <table className="pe-table border-collapse text-left text-xs">
+            <table className="w-full border-collapse text-left text-xs">
               <thead>
-                <tr>
-                  <th className="px-3 py-2 font-bold uppercase tracking-wide text-pe-text-muted border-b">File Name</th>
-                  <th className="px-3 py-2 font-bold uppercase tracking-wide text-pe-text-muted border-b">Status</th>
-                  <th className="px-3 py-2 font-bold uppercase tracking-wide text-pe-text-muted border-b">Submitted By</th>
-                  <th className="px-3 py-2 font-bold uppercase tracking-wide text-pe-text-muted border-b">Submitted At</th>
-                  <th className="px-3 py-2 font-bold uppercase tracking-wide text-pe-text-muted border-b">File Size</th>
-                  <th className="px-3 py-2 font-bold uppercase tracking-wide text-pe-text-muted border-b">Actions</th>
+                <tr style={{ background: "#F5F9FA" }}>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>File Name</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>Status</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>Submitted By</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>Submitted At</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>File Size</th>
+                  <th className="px-3 py-2 font-bold text-[10px] uppercase tracking-wide text-[#56636B] border-b" style={{ borderColor: "#DCE6EA" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {!detail ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-sm text-pe-faint">Loading submission history…</td>
+                    <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400">Loading submission history…</td>
                   </tr>
                 ) : sortedHistoryFiles.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-sm text-pe-faint">No masterdata files have been submitted yet.</td>
+                    <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400">No masterdata files have been submitted yet.</td>
                   </tr>
                 ) : (
                   sortedHistoryFiles.map((file) => (
-                    <tr key={file.id}>
-                      <td className="px-3 py-2 font-semibold text-pe-text-strong max-w-[240px]">
+                    <tr key={file.id} style={{ borderTop: "1px solid #EFF3F7" }}>
+                      <td className="px-3 py-2 font-semibold text-[#1B2830] max-w-[240px]">
                         <span className="block truncate" title={file.fileName}>{file.fileName}</span>
                       </td>
                       <td className="px-3 py-2">
                         {file.current ? (
-                          <span className="pe-badge pe-badge--success">Current</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#D1FAE5", color: "#047857" }}>Current</span>
                         ) : (
-                          <span className="pe-badge">Superseded</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#DCE6EA", color: "#56636B" }}>Superseded</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-pe-muted">{file.uploadedBy || "—"}</td>
-                      <td className="px-3 py-2 text-pe-muted whitespace-nowrap">{formatDateTime(file.submittedAt)}</td>
-                      <td className="px-3 py-2 text-pe-muted">{formatFileSize(file.fileSize)}</td>
+                      <td className="px-3 py-2 text-[#56636B]">{file.uploadedBy || "—"}</td>
+                      <td className="px-3 py-2 text-[#56636B] whitespace-nowrap">{formatDateTime(file.submittedAt)}</td>
+                      <td className="px-3 py-2 text-[#56636B]">{formatFileSize(file.fileSize)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <a
                             href={storageFileUrl(STORAGE_SOURCE, file.id, "download")}
-                            className="pe-btn pe-btn--secondary px-2.5 py-1 text-[11px]"
-                            style={{ textDecoration: "none" }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-[#258AC1] hover:bg-blue-100 inline-block"
                           >
                             ⬇ Download
                           </a>
@@ -826,12 +836,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
                             <button
                               type="button"
                               onClick={() => requestDelete(file)}
-                              className="pe-btn px-2.5 py-1 text-[11px]"
-                              style={{
-                                background: "var(--pe-danger-bg)",
-                                color: "var(--pe-danger)",
-                                borderColor: "var(--pe-danger-border)",
-                              }}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-red-50 text-red-700 hover:bg-red-100"
                             >
                               Delete
                             </button>
@@ -849,7 +854,7 @@ export default function ProjectsWithoutPPPMonitoringPage() {
 
       {/* Delete confirmation — no accidental single-click deletion */}
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteError(null); } }}>
-        <DialogContent className="z-[110] sm:max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Delete masterdata file?</DialogTitle>
             <DialogDescription>
@@ -857,13 +862,13 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="text-xs text-pe-text-strong space-y-1">
+          <div className="text-xs text-[#1B2830] space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-pe-muted">File</span>
+              <span className="text-[#56636B]">File</span>
               <span className="font-semibold text-right break-all">{deleteTarget?.fileName ?? "—"}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-pe-muted">Project</span>
+              <span className="text-[#56636B]">Project</span>
               <span className="font-semibold text-right">
                 {detailProject ? `${detailProject.projectName ?? ""} (${detailProject.trackingId})` : "—"}
               </span>
@@ -884,7 +889,8 @@ export default function ProjectsWithoutPPPMonitoringPage() {
             <button
               type="button"
               onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
-              className="pe-btn pe-btn--secondary text-xs"
+              className="px-4 py-2 rounded-lg text-xs font-bold text-[#56636B] border hover:bg-gray-50"
+              style={{ borderColor: "#DCE6EA" }}
             >
               Cancel
             </button>
@@ -892,7 +898,8 @@ export default function ProjectsWithoutPPPMonitoringPage() {
               type="button"
               onClick={confirmDelete}
               disabled={deleteFileMut.isPending || adminDeleteFileMut.isPending}
-              className="pe-btn pe-btn--danger text-xs"
+              className="px-4 py-2 rounded-lg text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
+              style={{ background: "#D0342F" }}
             >
               Delete File
             </button>

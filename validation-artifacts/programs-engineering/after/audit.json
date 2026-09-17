@@ -14,13 +14,9 @@
       "title": "Program Oversight Center",
       "scrollW": 1440,
       "clientW": 1440,
-      "scrollH": 1405,
+      "scrollH": 1079,
       "bodyBg": "rgb(255, 255, 255)",
-      "worstOverflow": {
-        "over": 60,
-        "tag": "path",
-        "cls": "[object SVGAnimatedString]"
-      },
+      "worstOverflow": null,
       "consoleErrors": [
         "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
       ],
@@ -161,9 +157,9 @@
       "scrollH": 900,
       "bodyBg": "rgb(255, 255, 255)",
       "worstOverflow": {
-        "over": 900,
+        "over": 838,
         "tag": "table",
-        "cls": "pe-table border-collapse text-left text-xs"
+        "cls": "w-full border-collapse text-left text-xs"
       },
       "consoleErrors": [
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
@@ -179,7 +175,7 @@
       "title": "Program Oversight Center",
       "scrollW": 1440,
       "clientW": 1440,
-      "scrollH": 2517,
+      "scrollH": 2730,
       "bodyBg": "rgb(255, 255, 255)",
       "worstOverflow": null,
       "consoleErrors": [
@@ -214,7 +210,7 @@
       "title": "Program Oversight Center",
       "scrollW": 1440,
       "clientW": 1440,
-      "scrollH": 3057,
+      "scrollH": 3090,
       "bodyBg": "rgb(255, 255, 255)",
       "worstOverflow": null,
       "consoleErrors": [],

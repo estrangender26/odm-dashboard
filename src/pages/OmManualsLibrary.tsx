@@ -4,8 +4,9 @@ import {
   Folder, FolderOpen, FolderPlus, Globe, Info, Move, Pencil, Search, Trash2, Upload, X,
 } from "lucide-react";
 import { memo, useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
-import { MODULE_IDENTITY, ModuleMasthead, SuiteMasthead } from "@/components/programs";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import AIAssistant from "@/components/AIAssistant";
 import {
   MAX_UPLOAD_ERROR_MESSAGE,
@@ -57,7 +58,7 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
   const s: Record<string, string> = {
     error:   "bg-red-50   border-red-200   text-red-800",
     success: "bg-green-50 border-green-200 text-green-800",
-    info:    "bg-pe-blue-soft  border-pe-blue-border  text-pe-blue-ink",
+    info:    "bg-blue-50  border-blue-200  text-blue-800",
   };
   return (
     <div className={`mb-3 px-4 py-3 border rounded-lg text-sm flex items-center gap-2 ${s[type]}`}>
@@ -72,32 +73,32 @@ function Banner({ type, message, onDismiss }: { type: "error" | "success" | "inf
 function ProgressOverlay({ visible, label, sublabel, progress }: { visible: boolean; label: string; sublabel?: string; progress?: number }) {
   if (!visible) return null;
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-pe-text-strong/55 backdrop-blur-[2px]">
-      <div className="pe-card shadow-pe-lg px-10 py-8 flex flex-col items-center gap-4 min-w-[260px]">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(13,33,55,0.55)", backdropFilter: "blur(2px)" }}>
+      <div className="bg-white rounded-xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4 min-w-[260px]">
         {/* Spinner */}
         <div className="relative w-14 h-14">
-          <div className="absolute inset-0 rounded-full border-4 border-pe-border" />
-          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-pe-blue animate-spin" style={{ animationDuration: "0.8s" }} />
+          <div className="absolute inset-0 rounded-full border-4 border-gray-200" />
+          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 animate-spin" style={{ animationDuration: "0.8s" }} />
         </div>
         {/* Label */}
         <div className="text-center">
-          <p className="text-sm font-bold text-pe-text-strong">{label}</p>
-          {sublabel && <p className="text-xs text-pe-muted mt-1">{sublabel}</p>}
+          <p className="text-sm font-bold text-gray-800">{label}</p>
+          {sublabel && <p className="text-xs text-gray-500 mt-1">{sublabel}</p>}
         </div>
         {/* Progress bar */}
-        <div className="w-full h-2 bg-pe-border rounded-full overflow-hidden">
+        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-300 ease-out"
             style={{
               width: progress !== undefined ? `${Math.min(100, Math.max(5, progress))}%` : "60%",
-              background: "var(--pe-gradient)",
+              background: "linear-gradient(90deg, #258AC1 0%, #3B82F6 50%, #258AC1 100%)",
               backgroundSize: "200% 100%",
               animation: progress !== undefined ? "none" : "progressShimmer 1.5s ease-in-out infinite",
             }}
           />
         </div>
         {/* Cancel hint */}
-        <p className="text-[0.65rem] text-pe-faint">Please wait...</p>
+        <p className="text-[0.65rem] text-gray-400">Please wait...</p>
       </div>
       <style>{`
         @keyframes progressShimmer {
@@ -274,11 +275,11 @@ function ContextMenu({ x, y, items, onClose }: {
   }, [onClose]);
 
   return (
-    <div ref={ref} className="pe-card fixed z-50 shadow-pe-md py-1 min-w-[160px]" style={{ left: x, top: y }}>
+    <div ref={ref} className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]" style={{ left: x, top: y }}>
       {items.map((item, i) => (
         <button key={i} type="button" onClick={() => { item.onClick(); onClose(); }}
-          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-pe-row-hover flex items-center gap-2 pe-focusable ${item.danger ? "text-red-600" : "text-pe-text"}`}>
-          <span className="text-pe-muted shrink-0 flex items-center">{item.icon}</span> {item.label}
+          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2 ${item.danger ? "text-red-600" : "text-gray-700"}`}>
+          <span className="text-odm-muted shrink-0 flex items-center">{item.icon}</span> {item.label}
         </button>
       ))}
     </div>
@@ -323,22 +324,22 @@ const TreeFolderItem = memo(function TreeFolderItem({
       <div
         className={`flex items-center gap-1.5 cursor-pointer group transition select-none
           ${isDimmed ? "opacity-40" : "opacity-100"}
-          ${selectedFolderId === folder.id ? "bg-pe-row-selected" : "hover:bg-pe-row-hover"}`}
+          ${selectedFolderId === folder.id ? "bg-blue-50" : "hover:bg-gray-50"}`}
         style={{ paddingLeft: `${level * 12 + 8}px`, paddingRight: "8px", paddingTop: "4px", paddingBottom: "4px" }}
         onClick={() => onSelectFolder(folder.id)}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenuFolder(e, folder); }}
       >
         <button
           type="button"
-          className="w-4 h-4 flex items-center justify-center text-pe-faint flex-shrink-0"
+          className="w-4 h-4 flex items-center justify-center text-gray-400 flex-shrink-0"
           onClick={(e) => { e.stopPropagation(); onToggle(folder.id); }}
         >
-          {isLoadingChildren ? <span className="w-3 h-3 rounded-full border-2 border-pe-border-strong border-t-pe-blue animate-spin" /> : hasContent ? <Chevron expanded={expanded} /> : <span className="w-2" />}
+          {isLoadingChildren ? <span className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin" /> : hasContent ? <Chevron expanded={expanded} /> : <span className="w-2" />}
         </button>
-        <span className={`flex-shrink-0 ${selectedFolderId === folder.id ? "text-pe-teal-ink" : "text-pe-blue"}`} aria-hidden="true">{expanded ? <FolderOpen size={15} /> : <Folder size={15} />}</span>
-        <span className={`text-xs font-semibold truncate flex-1 ${selectedFolderId === folder.id ? "text-pe-teal-ink" : "text-pe-text"}`}>{folder.name}</span>
+        <span className="flex-shrink-0" aria-hidden="true">{expanded ? <FolderOpen size={15} /> : <Folder size={15} />}</span>
+        <span className={`text-xs font-semibold truncate flex-1 ${selectedFolderId === folder.id ? "text-blue-800" : "text-gray-700"}`}>{folder.name}</span>
         {(folder.childFolderCount > 0 || folder.fileCount > 0) && (
-          <span className="text-[0.6rem] text-pe-faint flex-shrink-0 mr-1">
+          <span className="text-[0.6rem] text-gray-400 flex-shrink-0 mr-1">
             {folder.childFolderCount > 0 && `${folder.childFolderCount}f`}
             {folder.childFolderCount > 0 && folder.fileCount > 0 && " · "}
             {folder.fileCount > 0 && `${folder.fileCount}d`}
@@ -347,7 +348,7 @@ const TreeFolderItem = memo(function TreeFolderItem({
         {/* Action menu button */}
         <button
           type="button"
-          className="w-5 h-5 flex items-center justify-center text-pe-faint hover:text-pe-text hover:bg-pe-border rounded flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition"
+          className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition"
           onClick={(e) => { e.stopPropagation(); onContextMenuFolder(e, folder); }}
           title="Folder actions"
         >
@@ -359,7 +360,7 @@ const TreeFolderItem = memo(function TreeFolderItem({
       {expanded && (
         <div>
           {isLoadingChildren && folder.children.length === 0 && folder.files.length === 0 && (
-            <div className="text-[0.65rem] text-pe-faint py-1" style={{ paddingLeft: `${(level + 1) * 12 + 8}px` }}>Loading contents...</div>
+            <div className="text-[0.65rem] text-gray-400 py-1" style={{ paddingLeft: `${(level + 1) * 12 + 8}px` }}>Loading contents...</div>
           )}
           {/* Sub-folders */}
           {folder.children.map(child => (
@@ -391,20 +392,20 @@ const TreeFolderItem = memo(function TreeFolderItem({
               <div
                 key={file.id}
                 className={`flex items-center gap-1 cursor-pointer group transition select-none
-                  ${isSelected ? "bg-pe-row-selected" : "hover:bg-pe-row-hover"}
-                  ${fileMatch ? "bg-odm-warning-bg" : ""}`}
+                  ${isSelected ? "bg-blue-50" : "hover:bg-gray-50"}
+                  ${fileMatch ? "bg-yellow-50/60" : ""}`}
                 style={{ paddingLeft: `${(level + 1) * 12 + 8}px`, paddingRight: "4px", paddingTop: "4px", paddingBottom: "4px" }}
                 onClick={(e) => { e.stopPropagation(); onSelectFile(file); }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenuFile(e, file, folder.id); }}
               >
                 <span className="w-4 flex-shrink-0" />
-                <span className={`flex-shrink-0 ${isSelected ? "text-pe-teal-ink" : "text-pe-blue"}`} aria-hidden="true">{file.fileType?.includes("pdf") ? <FileText size={15} /> : <FileSpreadsheet size={15} />}</span>
-                <span className={`text-xs truncate flex-1 min-w-0 ${isSelected ? "text-pe-teal-ink font-semibold" : "text-pe-muted"}`}>{file.title || file.fileName}</span>
-                {file.revision && <span className="text-[0.6rem] text-pe-faint bg-odm-neutral-bg px-1 rounded flex-shrink-0 mr-1">{file.revision}</span>}
+                <span className="flex-shrink-0" aria-hidden="true">{file.fileType?.includes("pdf") ? <FileText size={15} /> : <FileSpreadsheet size={15} />}</span>
+                <span className={`text-xs truncate flex-1 min-w-0 ${isSelected ? "text-blue-800 font-semibold" : "text-gray-600"}`}>{file.title || file.fileName}</span>
+                {file.revision && <span className="text-[0.6rem] text-gray-400 bg-gray-100 px-1 rounded flex-shrink-0 mr-1">{file.revision}</span>}
                 {/* Download button */}
                 <button
                   type="button"
-                  className="w-5 h-5 flex items-center justify-center text-pe-blue hover:text-pe-blue-deep hover:bg-pe-blue-soft rounded flex-shrink-0"
+                  className="w-5 h-5 flex items-center justify-center text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded flex-shrink-0"
                   onClick={(e) => { e.stopPropagation(); onDownloadFile(file); }}
                   title="Download"
                 >
@@ -493,16 +494,16 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
   const HtmlFallbackCard = useCallback(() => {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="pe-card shadow-pe-md text-center max-w-md text-pe-muted p-6">
-          <Globe className="mx-auto mb-4 text-pe-faint" size={48} aria-hidden="true" />
-          <h3 className="text-lg font-semibold text-pe-text mb-1">HTML Document</h3>
+        <div className="text-center max-w-md text-gray-500 bg-white rounded-lg shadow p-6">
+          <Globe className="mx-auto mb-4 text-odm-faint" size={48} aria-hidden="true" />
+          <h3 className="text-lg font-semibold text-gray-700 mb-1">HTML Document</h3>
           <p className="text-sm mb-4 break-all" title={fileName}>{fileName}</p>
-          <p className="text-xs text-pe-faint mb-4">Type: {fileType || "text/html"}</p>
+          <p className="text-xs text-gray-400 mb-4">Type: {fileType || "text/html"}</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
-            <button type="button" onClick={handleOpenInNewTab} className="pe-btn pe-btn--primary px-4 py-2 text-sm">
+            <button type="button" onClick={handleOpenInNewTab} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2">
               Open
             </button>
-            <button type="button" onClick={handleDownload} className="pe-btn pe-btn--secondary px-4 py-2 text-sm">
+            <button type="button" onClick={handleDownload} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-100 flex items-center gap-2">
               <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               Download
             </button>
@@ -521,9 +522,9 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
   if (!hasData) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-center max-w-md text-pe-faint">
-          <FileText className="mx-auto mb-4 text-pe-faint" size={56} aria-hidden="true" />
-          <h3 className="text-lg font-semibold text-pe-muted mb-2">No PDF Available</h3>
+        <div className="text-center max-w-md text-gray-400">
+          <FileText className="mx-auto mb-4 text-odm-faint" size={56} aria-hidden="true" />
+          <h3 className="text-lg font-semibold text-gray-500 mb-2">No PDF Available</h3>
           <p className="text-sm">This document has no same-origin file data or secure preview URL attached.<br />Upload a PDF or check the file URL.</p>
           {onDelete && (
             <button type="button" onClick={onDelete} className="mt-4 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100">
@@ -542,15 +543,15 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
   if (loadError || !src) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-center max-w-md text-pe-faint">
+        <div className="text-center max-w-md text-gray-400">
           <AlertTriangle className="mx-auto mb-4 text-odm-warning" size={48} aria-hidden="true" />
-          <h3 className="text-lg font-semibold text-pe-muted mb-2">Cannot Preview PDF</h3>
+          <h3 className="text-lg font-semibold text-gray-600 mb-2">Cannot Preview PDF</h3>
           <p className="text-sm mb-4">Your browser cannot render this PDF inline.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
-            <button type="button" onClick={handleOpenInNewTab} className="pe-btn pe-btn--primary px-4 py-2 text-sm">
+            <button type="button" onClick={handleOpenInNewTab} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 flex items-center gap-2">
               Open PDF in new tab
             </button>
-            <button type="button" onClick={handleDownload} className="pe-btn pe-btn--secondary px-4 py-2 text-sm">
+            <button type="button" onClick={handleDownload} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-100 flex items-center gap-2">
               <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               Download PDF
             </button>
@@ -569,18 +570,18 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Toolbar */}
-      <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-pe-border flex-wrap">
-        <span className="text-xs font-semibold text-pe-text truncate flex-1" title={title}>{title}</span>
+      <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200 flex-wrap">
+        <span className="text-xs font-semibold text-gray-700 truncate flex-1" title={title}>{title}</span>
         <div className="flex items-center gap-1 flex-shrink-0">
-          <button type="button" onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="px-2 py-1 bg-odm-sunk text-pe-text rounded text-xs hover:bg-pe-border font-bold">−</button>
-          <span className="text-xs text-pe-muted w-10 text-center">{Math.round(zoom * 100)}%</span>
-          <button type="button" onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="px-2 py-1 bg-odm-sunk text-pe-text rounded text-xs hover:bg-pe-border font-bold">+</button>
-          <button type="button" onClick={() => setZoom(1)} className="px-2 py-1 bg-odm-sunk text-pe-text rounded text-xs hover:bg-pe-border">Fit</button>
+          <button type="button" onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">−</button>
+          <span className="text-xs text-gray-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
+          <button type="button" onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 font-bold">+</button>
+          <button type="button" onClick={() => setZoom(1)} className="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200">Fit</button>
         </div>
-        <button type="button" onClick={handleOpenInNewTab} className="pe-btn pe-btn--secondary px-2.5 py-1.5 text-xs">
+        <button type="button" onClick={handleOpenInNewTab} className="px-2.5 py-1.5 bg-white border border-blue-200 text-blue-600 rounded text-xs hover:bg-blue-50 font-semibold flex items-center gap-1 flex-shrink-0">
           Open PDF in new tab
         </button>
-        <button type="button" onClick={handleDownload} className="pe-btn pe-btn--ghost px-2.5 py-1.5 text-xs text-pe-blue-ink hover:bg-pe-blue-soft">
+        <button type="button" onClick={handleDownload} className="px-2.5 py-1.5 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 font-semibold flex items-center gap-1 flex-shrink-0">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
           Download
         </button>
@@ -592,7 +593,7 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
         )}
       </div>
       {/* PDF viewer using iframe with same-origin preview URL */}
-      <div className="flex-1 overflow-auto bg-odm-sunk flex items-start justify-center p-4">
+      <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-4">
         <div
           style={{
             transform: `scale(${zoom})`,
@@ -603,16 +604,16 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
             maxWidth: "100%",
           }}
         >
-          <div className="pe-card relative w-full h-full shadow-pe-md overflow-hidden">
+          <div className="relative w-full h-full bg-white shadow-lg">
             {isFrameLoading && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white">
-                <div className="w-16 h-16 rounded-full border-4 border-pe-blue-soft border-t-pe-blue animate-spin mb-4" />
+                <div className="w-16 h-16 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin mb-4" />
                 <div className="w-2/3 max-w-sm space-y-3">
-                  <div className="h-3 rounded bg-pe-border animate-pulse" />
-                  <div className="h-3 rounded bg-odm-sunk animate-pulse" />
-                  <div className="h-3 w-3/4 rounded bg-odm-sunk animate-pulse" />
+                  <div className="h-3 rounded bg-gray-200 animate-pulse" />
+                  <div className="h-3 rounded bg-gray-100 animate-pulse" />
+                  <div className="h-3 w-3/4 rounded bg-gray-100 animate-pulse" />
                 </div>
-                <p className="mt-4 text-xs font-semibold text-pe-muted">Loading PDF preview...</p>
+                <p className="mt-4 text-xs font-semibold text-gray-500">Loading PDF preview...</p>
               </div>
             )}
             <iframe
@@ -637,11 +638,11 @@ const PdfViewer = memo(function PdfViewer({ fileId, hasFileData, fileUrl, fileTy
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-pe-text-strong/50" onClick={onClose}>
-      <div className="pe-card shadow-pe-lg max-w-md w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="pe-card__header flex items-center justify-between">
-          <span className="pe-card__title">{title}</span>
-          <button type="button" onClick={onClose} className="pe-focusable rounded text-pe-faint hover:text-pe-text text-lg leading-none">&times;</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+          <span className="text-sm font-bold text-gray-800">{title}</span>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
         </div>
         <div className="p-4">{children}</div>
       </div>
@@ -1115,71 +1116,54 @@ export default function OmManualsLibrary() {
       <ProgressOverlay visible={isUploading} label={uploadLabel || "Uploading..."} sublabel={uploadLabel.includes("%") ? undefined : "Transferring file to server"} progress={uploadProgress} />
       <ProgressOverlay visible={isDownloading} label={downloadLabel || "Downloading..."} sublabel="Fetching file from server" />
 
-      {/* Suite identity — Programs Engineering sits above the module identity. */}
-      <div className="flex-shrink-0">
-        <SuiteMasthead
-          linkTitle="Programs Engineering suite home"
-          actions={
-            <>
-              <span className="pe-badge pe-badge--blue" title="Folders in the library">
-                {counts.folders} Folders
-              </span>
-              <span className="pe-badge pe-badge--teal" title="Files in the library">
-                {counts.files} Files
-              </span>
-            </>
-          }
-        />
-        <ModuleMasthead
-          showIdentityRow={false}
-          icon={MODULE_IDENTITY.omLibrary.icon}
-          tone={MODULE_IDENTITY.omLibrary.tone}
-          title="O&M Manuals Library"
-          subtitle="Document Management System"
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={expandAll}
-                className="pe-btn pe-btn--secondary"
-              >
-                Expand
-              </button>
-              <button
-                type="button"
-                onClick={collapseAll}
-                className="pe-btn pe-btn--ghost"
-              >
-                Collapse
-              </button>
-            </>
-          }
-        />
-      </div>
+      {/* Header */}
+      <header className="flex-shrink-0" style={{ background: "var(--pe-white)", borderBottom: "1px solid var(--pe-border)", boxShadow: "var(--odm-shadow-sm)" }}>
+        <div className="flex items-center justify-between px-4 py-2.5">
+          <Link to="/" className="flex items-center gap-3 no-underline text-pe-text-strong">
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
+            <div>
+              <h1 className="text-base font-bold leading-tight">O&amp;M Manuals Library</h1>
+              <p className="text-[0.6rem] opacity-100 uppercase tracking-wider">Document Management System</p>
+            </div>
+          </Link>
+          <div className="flex gap-2">
+            <div className="bg-pe-blue-soft border border-pe-blue-border rounded px-2.5 py-1.5 text-center">
+              <div className="text-sm font-bold">{counts.folders}</div>
+              <div className="text-[0.55rem] uppercase opacity-70">Folders</div>
+            </div>
+            <div className="bg-pe-blue-soft border border-pe-blue-border rounded px-2.5 py-1.5 text-center">
+              <div className="text-sm font-bold">{counts.files}</div>
+              <div className="text-[0.55rem] uppercase opacity-70">Files</div>
+            </div>
+          </div>
+        </div>
+      </header>
 
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT PANEL: Tree */}
-        <div className={`w-full sm:w-[380px] lg:w-[420px] flex flex-col border-r border-pe-border bg-white ${mobileView === "detail" ? "hidden sm:flex" : "flex"}`}>
+        <div className={`w-full sm:w-[380px] lg:w-[420px] flex flex-col border-r border-gray-200 bg-white ${mobileView === "detail" ? "hidden sm:flex" : "flex"}`}>
           {/* Toolbar */}
-          <div className="flex-shrink-0 p-2.5 border-b border-pe-border space-y-2">
+          <div className="flex-shrink-0 p-2.5 border-b border-gray-200 space-y-2">
             <div className="relative">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-pe-faint" aria-hidden="true"><Search size={14} /></span>
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-odm-faint" aria-hidden="true"><Search size={14} /></span>
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search folders and files..."
-                className="w-full pl-8 pr-7 py-1.5 border border-pe-border-strong rounded-md text-sm text-pe-text placeholder:text-pe-faint focus:border-pe-blue focus:ring-2 focus:ring-pe-blue-border outline-none" />
-              {search && <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-pe-faint text-sm"><X size={13} aria-hidden="true" /></button>}
+                className="w-full pl-8 pr-7 py-1.5 border border-odm-border-strong rounded-md text-sm focus:border-odm-blue focus:ring-2 focus:ring-odm-blue/15 outline-none" />
+              {search && <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm"><X size={13} aria-hidden="true" /></button>}
             </div>
             <div className="flex gap-1.5 flex-wrap">
               <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
-                className="px-2 py-1 bg-white border border-pe-border-strong text-pe-text rounded text-xs font-semibold hover:bg-pe-blue-soft flex items-center gap-1">
+                className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
                 <FolderPlus size={13} aria-hidden="true" />New Folder
               </button>
               <button type="button" onClick={() => { if (selectedFolderId) fileInputRef.current?.click(); else setBanner({ type: "info", message: "Select a folder first" }); }}
-                className="px-2 py-1 bg-white border border-pe-border-strong text-pe-text rounded text-xs font-semibold hover:bg-pe-blue-soft flex items-center gap-1">
+                className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
                 <Upload size={13} aria-hidden="true" />Upload
               </button>
               <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.svg,.webp,.txt,.csv,.json,.zip,.html,.htm,.xhtml" className="hidden" onChange={handleFileUpload} />
+              <button type="button" onClick={expandAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Expand</button>
+              <button type="button" onClick={collapseAll} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200">Collapse</button>
               {search && <button type="button" onClick={() => setSearch("")} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-semibold hover:bg-red-100">Clear</button>}
             </div>
             {/* Selected folder actions */}
@@ -1188,15 +1172,15 @@ export default function OmManualsLibrary() {
               return folder ? (
                 <div className="flex gap-1.5 flex-wrap">
                   <button type="button" onClick={() => { setModal({ type: "createSubfolder", folderId: selectedFolderId }); setModalInput(""); }}
-                    className="px-2 py-1 bg-pe-blue-soft border border-pe-blue-border text-pe-blue-ink rounded text-xs font-semibold hover:bg-pe-blue-border flex items-center gap-1">
+                    className="px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-semibold hover:bg-blue-100 flex items-center gap-1">
                     <FolderPlus size={13} aria-hidden="true" />New Subfolder
                   </button>
                   <button type="button" onClick={() => { setModal({ type: "renameFolder", folderId: selectedFolderId }); setModalInput(folder.name); }}
-                    className="px-2 py-1 bg-white border border-pe-border-strong text-pe-text rounded text-xs font-semibold hover:bg-pe-blue-soft flex items-center gap-1">
+                    className="px-2 py-1 bg-white border border-gray-300 text-gray-700 rounded text-xs font-semibold hover:bg-gray-50 flex items-center gap-1">
                     <Pencil size={13} aria-hidden="true" />Rename
                   </button>
                   <button type="button" onClick={() => { setModal({ type: "deleteFolder", folderId: selectedFolderId }); }}
-                    className="px-2 py-1 bg-white border border-pe-border-strong text-red-600 rounded text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
+                    className="px-2 py-1 bg-white border border-gray-300 text-red-600 rounded text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
                     <Trash2 size={13} aria-hidden="true" />Delete
                   </button>
                 </div>
@@ -1206,23 +1190,23 @@ export default function OmManualsLibrary() {
             {selectedFile && selectedFileId && (
               <div className="flex gap-1.5 flex-wrap">
                 <button type="button" onClick={() => handleDownloadFile(selectedFile)}
-                  className="px-2 py-1 bg-pe-blue-soft border border-pe-blue-border text-pe-blue-ink rounded text-xs font-semibold hover:bg-pe-blue-border flex items-center gap-1">
+                  className="px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-semibold hover:bg-blue-100 flex items-center gap-1">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M4 6l2 2 2-2M3 9h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   Download
                 </button>
                 <button type="button" onClick={() => setModal({ type: "deleteFile", fileId: selectedFile.id })}
-                  className="px-2 py-1 bg-white border border-pe-border-strong text-red-600 rounded text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
+                  className="px-2 py-1 bg-white border border-gray-300 text-red-600 rounded text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 3h6M5 3V2h2v1M4 3v7M6 3v7M8 3v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   Delete
                 </button>
               </div>
             )}
             {breadcrumbs.length > 0 && (
-              <div className="flex items-center gap-1 text-[0.65rem] text-pe-muted flex-wrap">
+              <div className="flex items-center gap-1 text-[0.65rem] text-gray-500 flex-wrap">
                 {breadcrumbs.map((b, i) => (
                   <span key={b.id}>
-                    {i > 0 && <span className="text-pe-border-strong mx-0.5">/</span>}
-                    <span className="text-pe-text font-medium">{b.name}</span>
+                    {i > 0 && <span className="text-gray-300 mx-0.5">/</span>}
+                    <span className="text-gray-600 font-medium">{b.name}</span>
                   </span>
                 ))}
               </div>
@@ -1232,18 +1216,18 @@ export default function OmManualsLibrary() {
           {/* Tree */}
           <div className="flex-1 overflow-y-auto py-1">
             {isSearchTreeLoading && debouncedSearch.length > 2 && (
-              <div className="px-3 py-1 text-[0.65rem] text-pe-blue-ink bg-pe-blue-soft border-b border-pe-blue-border">Searching full library...</div>
+              <div className="px-3 py-1 text-[0.65rem] text-blue-600 bg-blue-50 border-b border-blue-100">Searching full library...</div>
             )}
             {isLoading ? (
-              <div className="flex items-center justify-center py-16 text-pe-faint text-sm">Loading root folders...</div>
+              <div className="flex items-center justify-center py-16 text-gray-400 text-sm">Loading root folders...</div>
             ) : treeError ? (
               <div className="flex items-center justify-center py-16 text-red-600 text-sm">Failed to load library: {treeError.message}</div>
             ) : displayTree.length === 0 ? (
-              <div className="text-center py-16 text-pe-faint">
-                <FolderOpen className="mx-auto mb-2 text-pe-faint" size={30} aria-hidden="true" />
-                <div className="text-sm font-semibold text-pe-muted">No folders yet</div>
+              <div className="text-center py-16 text-gray-400">
+                <FolderOpen className="mx-auto mb-2 text-odm-faint" size={30} aria-hidden="true" />
+                <div className="text-sm font-semibold text-gray-600">No folders yet</div>
                 <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
-                  className="pe-btn pe-btn--primary mt-3 px-3 py-1.5 text-xs">Create First Folder</button>
+                  className="mt-3 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Create First Folder</button>
               </div>
             ) : (
               displayTree.map(folder => (
@@ -1272,9 +1256,9 @@ export default function OmManualsLibrary() {
         </div>
 
         {/* RIGHT PANEL: Viewer */}
-        <div className={`flex-1 flex-col bg-odm-sunk overflow-hidden ${mobileView === "detail" ? "flex" : "hidden sm:flex"}`}>
+        <div className={`flex-1 flex-col bg-gray-100 overflow-hidden ${mobileView === "detail" ? "flex" : "hidden sm:flex"}`}>
           {/* Mobile back */}
-          <button type="button" onClick={() => setMobileView("tree")} className="sm:hidden flex items-center gap-1 text-xs text-pe-blue-ink font-semibold px-4 py-2 bg-white border-b border-pe-border">
+          <button type="button" onClick={() => setMobileView("tree")} className="sm:hidden flex items-center gap-1 text-xs text-blue-600 font-semibold px-4 py-2 bg-white border-b border-gray-200">
             <svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M7.5 9.5L4 6L7.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Back to tree
           </button>
@@ -1292,13 +1276,13 @@ export default function OmManualsLibrary() {
             />
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center max-w-md text-pe-faint">
-                <Folder className="mx-auto mb-4 text-pe-faint" size={56} aria-hidden="true" />
-                <h3 className="text-lg font-semibold text-pe-muted mb-2">Document Library</h3>
+              <div className="text-center max-w-md text-gray-400">
+                <Folder className="mx-auto mb-4 text-odm-faint" size={56} aria-hidden="true" />
+                <h3 className="text-lg font-semibold text-gray-500 mb-2">Document Library</h3>
                 <p className="text-sm">Select a file from the folder tree to view it here.<br />Right-click folders or files for more options.</p>
                 {counts.folders === 0 && (
                   <button type="button" onClick={() => { setModal({ type: "createRootFolder" }); setModalInput(""); }}
-                    className="pe-btn pe-btn--primary mt-4 px-4 py-2 text-sm">Create First Folder</button>
+                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Create First Folder</button>
                 )}
               </div>
               </div>
@@ -1314,11 +1298,11 @@ export default function OmManualsLibrary() {
         <Modal title="New Folder" onClose={() => setModal(null)}>
           <input type="text" value={modalInput} onChange={e => setModalInput(e.target.value)}
             placeholder="Folder name" autoFocus
-            className="w-full px-3 py-2 border border-pe-border-strong rounded-lg text-sm text-pe-text placeholder:text-pe-faint focus:border-pe-blue focus:ring-2 focus:ring-pe-blue-border outline-none" />
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
-            <button type="button" onClick={() => setModal(null)} className="pe-btn pe-btn--ghost px-3 py-1.5 text-xs">Cancel</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
             <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { createFolder.mutate({ name: modalInput.trim() }); }}
-              className="pe-btn pe-btn--primary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
           </div>
         </Modal>
       )}
@@ -1327,11 +1311,11 @@ export default function OmManualsLibrary() {
         <Modal title="New Subfolder" onClose={() => setModal(null)}>
           <input type="text" value={modalInput} onChange={e => setModalInput(e.target.value)}
             placeholder="Subfolder name" autoFocus
-            className="w-full px-3 py-2 border border-pe-border-strong rounded-lg text-sm text-pe-text placeholder:text-pe-faint focus:border-pe-blue focus:ring-2 focus:ring-pe-blue-border outline-none" />
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
-            <button type="button" onClick={() => setModal(null)} className="pe-btn pe-btn--ghost px-3 py-1.5 text-xs">Cancel</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
             <button type="button" disabled={createFolder.isPending || !modalInput.trim()} onClick={() => { createFolder.mutate({ name: modalInput.trim(), parentId: modal.folderId }); }}
-              className="pe-btn pe-btn--primary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{createFolder.isPending ? "Creating..." : "Create"}</button>
           </div>
         </Modal>
       )}
@@ -1340,11 +1324,11 @@ export default function OmManualsLibrary() {
         <Modal title="Rename Folder" onClose={() => setModal(null)}>
           <input type="text" value={modalInput} onChange={e => setModalInput(e.target.value)}
             placeholder="Folder name" autoFocus
-            className="w-full px-3 py-2 border border-pe-border-strong rounded-lg text-sm text-pe-text placeholder:text-pe-faint focus:border-pe-blue focus:ring-2 focus:ring-pe-blue-border outline-none" />
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
-            <button type="button" onClick={() => setModal(null)} className="pe-btn pe-btn--ghost px-3 py-1.5 text-xs">Cancel</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
             <button type="button" disabled={renameFolder.isPending || !modalInput.trim()} onClick={() => renameFolder.mutate({ id: modal.folderId!, name: modalInput.trim() })}
-              className="pe-btn pe-btn--primary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed">{renameFolder.isPending ? "Renaming..." : "Rename"}</button>
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{renameFolder.isPending ? "Renaming..." : "Rename"}</button>
           </div>
         </Modal>
       )}
@@ -1353,31 +1337,31 @@ export default function OmManualsLibrary() {
         <Modal title="Rename File" onClose={() => setModal(null)}>
           <input type="text" value={modalInput} onChange={e => setModalInput(e.target.value)}
             placeholder="File title" autoFocus
-            className="w-full px-3 py-2 border border-pe-border-strong rounded-lg text-sm text-pe-text placeholder:text-pe-faint focus:border-pe-blue focus:ring-2 focus:ring-pe-blue-border outline-none" />
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" />
           <div className="flex justify-end gap-2 mt-3">
-            <button type="button" onClick={() => setModal(null)} className="pe-btn pe-btn--ghost px-3 py-1.5 text-xs">Cancel</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
             <button type="button" disabled={renameFile.isPending || !modalInput.trim()} onClick={() => renameFile.mutate({ id: modal.fileId!, title: modalInput.trim() })}
-              className="pe-btn pe-btn--primary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed">{renameFile.isPending ? "Renaming..." : "Rename"}</button>
+              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{renameFile.isPending ? "Renaming..." : "Rename"}</button>
           </div>
         </Modal>
       )}
 
       {modal?.type === "deleteFolder" && (
         <Modal title="Delete Folder?" onClose={() => setModal(null)}>
-          <p className="text-sm text-pe-muted">This will permanently delete the folder and all its contents (subfolders and files). This action cannot be undone.</p>
+          <p className="text-sm text-gray-600">This will permanently delete the folder and all its contents (subfolders and files). This action cannot be undone.</p>
           <div className="flex justify-end gap-2 mt-3">
-            <button type="button" onClick={() => setModal(null)} className="pe-btn pe-btn--ghost px-3 py-1.5 text-xs">Cancel</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
             <button type="button" disabled={deleteFolder.isPending} onClick={() => { deleteFolder.mutate({ id: modal.folderId! }); setModal(null); }}
-              className="pe-btn pe-btn--danger px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed">{deleteFolder.isPending ? "Deleting..." : "Delete"}</button>
+              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">{deleteFolder.isPending ? "Deleting..." : "Delete"}</button>
           </div>
         </Modal>
       )}
 
       {modal?.type === "deleteFile" && (
         <Modal title="Delete File?" onClose={() => setModal(null)}>
-          <p className="text-sm text-pe-muted">This will permanently delete the file. This action cannot be undone.</p>
+          <p className="text-sm text-gray-600">This will permanently delete the file. This action cannot be undone.</p>
           <div className="flex justify-end gap-2 mt-3">
-            <button type="button" onClick={() => setModal(null)} className="pe-btn pe-btn--ghost px-3 py-1.5 text-xs">Cancel</button>
+            <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
             <button type="button" disabled={deleteFile.isPending} onClick={async () => {
               const file = findFileById(tree, modal.fileId!);
               setModal(null);
@@ -1394,7 +1378,7 @@ export default function OmManualsLibrary() {
                 deleteFile.mutate({ id: modal.fileId! });
               }
             }}
-              className="pe-btn pe-btn--danger px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed">{deleteFile.isPending ? "Deleting..." : "Delete"}</button>
+              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">{deleteFile.isPending ? "Deleting..." : "Delete"}</button>
           </div>
         </Modal>
       )}

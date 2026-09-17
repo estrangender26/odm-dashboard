@@ -1,6 +1,5 @@
 import { useRef, useState, useEffect } from "react";
 import AIAssistant from "@/components/AIAssistant";
-import { SuiteMasthead } from "@/components/programs";
 
 type ScorecardWindow = Window & {
   KPIs?: Array<{ key: string; name: string; unit?: string; benchmark?: number; benchmarkLabel?: string }>;
@@ -37,22 +36,13 @@ export default function ScorecardDashboard() {
   };
 
   return (
-    <div className="h-screen flex flex-col" style={{ background: "var(--pe-bg)" }}>
-      {/* Suite identity above the module. The scorecard HTML renders its own
-          compact Programs Engineering masthead inside the frame, so this row
-          only carries the suite level of the hierarchy. */}
-      <SuiteMasthead />
+    <div className="h-screen flex flex-col bg-gray-50">
       {/* Main content — iframe for existing HTML + AI panel */}
       <div className="flex-1 flex overflow-hidden">
         {/* Scorecard iframe */}
         <div className="flex-1 overflow-hidden">
           {isLoading ? (
-            <div
-              className="flex items-center justify-center h-full text-sm"
-              style={{ color: "var(--pe-text-muted)" }}
-            >
-              Loading scorecard...
-            </div>
+            <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading scorecard...</div>
           ) : (
             <iframe
               ref={iframeRef}

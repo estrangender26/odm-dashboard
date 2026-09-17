@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import { MODULE_IDENTITY, ModuleMasthead, SuiteMasthead } from "@/components/programs";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import { readRememberedLinks } from "@/modules/gantt/primavera-lite/pageState";
 
 type RememberedLink = {
@@ -23,22 +24,25 @@ export default function GanttLandingPage() {
 
   return (
     <div className="odm-canvas min-h-screen">
-      {/*
-        Programs Engineering suite identity sits ABOVE module identity; both
-        rows are white-dominant and replace the previous dark navy header.
-        The identity link keeps its "Dashboard Home" contract via
-        linkAriaLabel/linkTitle, and its aria-label gives the page its
-        accessible home affordance.
-      */}
-      <SuiteMasthead linkAriaLabel="Dashboard Home" linkTitle="Dashboard Home" />
-
-      <ModuleMasthead
-        showIdentityRow={false}
-        icon={MODULE_IDENTITY.primavera.icon}
-        tone={MODULE_IDENTITY.primavera.tone}
-        title="ODM Primavera Lite Online"
-        subtitle="Link-based project scheduling — no account required"
-      />
+      <header
+        className=""
+        style={{ background: "var(--pe-white)" }}
+      >
+        <div className="mx-auto flex max-w-4xl items-center px-4 py-3">
+          <Link
+            to="/"
+            aria-label="Dashboard Home"
+            title="Dashboard Home"
+            className="flex items-center gap-3 text-pe-text-strong no-underline"
+          >
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
+            <div>
+              <h1 className="text-base font-bold leading-tight sm:text-lg">ODM Primavera Lite Online</h1>
+              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Link-based project scheduling</p>
+            </div>
+          </Link>
+        </div>
+      </header>
 
       <main className="p-6">
         <div className="mx-auto max-w-2xl pt-6">
@@ -48,24 +52,24 @@ export default function GanttLandingPage() {
               <CardTitle>ODM Primavera Lite Online</CardTitle>
             </CardHeader>
           <CardContent className="space-y-6">
-            <p className="text-sm text-pe-muted">
+            <p className="text-sm text-muted-foreground">
               Link-based project scheduling. No account required. Keep your admin link safe — it is the only way to manage a project.
             </p>
 
             <div className="flex justify-center">
-              <Link to="/gantt/new" className="pe-btn pe-btn--primary no-underline">
-                Create New Project
+              <Link to="/gantt/new">
+                <Button>Create New Project</Button>
               </Link>
             </div>
 
             <div>
-              <h3 className="mb-2 text-sm font-semibold text-pe-text-strong">My Projects</h3>
+              <h3 className="mb-2 text-sm font-semibold">My Projects</h3>
               {validating ? (
-                <div className="flex items-center gap-2 text-sm text-pe-muted">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Spinner className="h-4 w-4" /> Loading remembered projects…
                 </div>
               ) : links.length === 0 ? (
-                <p className="text-sm text-pe-muted">
+                <p className="text-sm text-muted-foreground">
                   No remembered projects. Create one above, or paste an admin link into the address bar.
                 </p>
               ) : (
@@ -74,10 +78,10 @@ export default function GanttLandingPage() {
                     <li key={link.slug}>
                       <a
                         href={link.adminUrl}
-                        className="pe-focusable block rounded-md border border-pe-border bg-white p-3 text-sm text-pe-text no-underline hover:border-pe-blue-border hover:bg-pe-row-hover"
+                        className="block rounded border bg-white p-3 text-sm hover:bg-slate-100"
                       >
                         <div className="font-medium">{link.name || link.slug}</div>
-                        <div className="text-xs text-pe-faint">{link.slug}</div>
+                        <div className="text-xs text-muted-foreground">{link.slug}</div>
                       </a>
                     </li>
                   ))}
@@ -85,7 +89,7 @@ export default function GanttLandingPage() {
               )}
             </div>
 
-            <div className="rounded-md border border-odm-warning-border bg-odm-warning-bg p-3 text-xs text-odm-warning">
+            <div className="rounded bg-amber-50 p-3 text-xs text-amber-800">
               Warning: Remembered projects are stored in this browser. If browser storage is cleared and you have not saved the admin link elsewhere, you may lose access.
             </div>
           </CardContent>

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import { MODULE_IDENTITY, ModuleMasthead, SuiteMasthead } from "@/components/programs";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import {
   addRememberedLink,
   extractTokenFromUrl,
@@ -72,20 +73,25 @@ export default function GanttNewProjectPage() {
 
   return (
     <div className="odm-canvas min-h-screen">
-      {/*
-        Suite identity above module identity — the white-dominant mastheads
-        replace the previous dark navy header. The identity link carries the
-        "Dashboard Home" contract via linkAriaLabel/linkTitle.
-      */}
-      <SuiteMasthead linkAriaLabel="Dashboard Home" linkTitle="Dashboard Home" />
-
-      <ModuleMasthead
-        showIdentityRow={false}
-        icon={MODULE_IDENTITY.primavera.icon}
-        tone={MODULE_IDENTITY.primavera.tone}
-        title="Create Primavera Lite Project"
-        subtitle="Link-based project scheduling — admin, editor and viewer links"
-      />
+      <header
+        className=""
+        style={{ background: "var(--pe-white)" }}
+      >
+        <div className="mx-auto flex max-w-4xl items-center px-4 py-3">
+          <Link
+            to="/"
+            aria-label="Dashboard Home"
+            title="Dashboard Home"
+            className="flex items-center gap-3 text-pe-text-strong no-underline"
+          >
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
+            <div>
+              <h1 className="text-base font-bold leading-tight sm:text-lg">Create Primavera Lite Project</h1>
+              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Link-based project scheduling</p>
+            </div>
+          </Link>
+        </div>
+      </header>
 
       <main className="p-6">
         <div className="mx-auto max-w-md pt-6">
@@ -104,7 +110,6 @@ export default function GanttNewProjectPage() {
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
                     placeholder="e.g., Calawis Handover"
-                    className="border-pe-border-strong bg-white text-pe-text focus-visible:!border-pe-blue focus-visible:!ring-pe-blue/40"
                   />
                 </div>
 
@@ -115,7 +120,6 @@ export default function GanttNewProjectPage() {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="Short project description"
-                    className="border-pe-border-strong bg-white text-pe-text focus-visible:!border-pe-blue focus-visible:!ring-pe-blue/40"
                   />
                 </div>
 
@@ -126,58 +130,48 @@ export default function GanttNewProjectPage() {
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="e.g., Gerald"
-                    className="border-pe-border-strong bg-white text-pe-text focus-visible:!border-pe-blue focus-visible:!ring-pe-blue/40"
                   />
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleCreate}
-                  disabled={createMutation.isPending}
-                  className="pe-btn pe-btn--primary w-full"
-                >
+                <Button onClick={handleCreate} disabled={createMutation.isPending} className="w-full">
                   {createMutation.isPending ? <Spinner className="h-4 w-4" /> : "Create Project"}
-                </button>
+                </Button>
               </>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm font-medium text-pe-text-strong">{created.name}</p>
+                <p className="text-sm font-medium">{created.name}</p>
 
-                <div className="rounded-md border border-odm-warning-border bg-odm-warning-bg p-3 text-xs text-odm-warning">
+                <div className="rounded bg-amber-50 p-3 text-xs text-amber-800">
                   Save the admin link now. It will not be shown again and cannot be recovered from the server.
                 </div>
 
                 <div className="space-y-2">
                   <Label>Admin link (full control)</Label>
                   <div className="flex gap-2">
-                    <Input readOnly value={created.adminLink} className="border-pe-border-strong bg-white text-xs text-pe-text focus-visible:!border-pe-blue focus-visible:!ring-pe-blue/40" />
-                    <button type="button" className="pe-btn pe-btn--secondary" onClick={() => copy(created.adminLink)}>Copy</button>
+                    <Input readOnly value={created.adminLink} className="text-xs" />
+                    <Button variant="outline" onClick={() => copy(created.adminLink)}>Copy</Button>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Editor link</Label>
                   <div className="flex gap-2">
-                    <Input readOnly value={created.editorLink} className="border-pe-border-strong bg-white text-xs text-pe-text focus-visible:!border-pe-blue focus-visible:!ring-pe-blue/40" />
-                    <button type="button" className="pe-btn pe-btn--secondary" onClick={() => copy(created.editorLink)}>Copy</button>
+                    <Input readOnly value={created.editorLink} className="text-xs" />
+                    <Button variant="outline" onClick={() => copy(created.editorLink)}>Copy</Button>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Viewer link</Label>
                   <div className="flex gap-2">
-                    <Input readOnly value={created.viewerLink} className="border-pe-border-strong bg-white text-xs text-pe-text focus-visible:!border-pe-blue focus-visible:!ring-pe-blue/40" />
-                    <button type="button" className="pe-btn pe-btn--secondary" onClick={() => copy(created.viewerLink)}>Copy</button>
+                    <Input readOnly value={created.viewerLink} className="text-xs" />
+                    <Button variant="outline" onClick={() => copy(created.viewerLink)}>Copy</Button>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  className="pe-btn pe-btn--primary w-full"
-                  onClick={() => navigate(`${projectPath}?access=${adminToken}`)}
-                >
+                <Button className="w-full" onClick={() => navigate(`${projectPath}?access=${adminToken}`)}>
                   Open Project
-                </button>
+                </Button>
               </div>
             )}
           </CardContent>

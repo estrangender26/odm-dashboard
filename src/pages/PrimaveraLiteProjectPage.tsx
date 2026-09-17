@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { trpc } from "@/providers/trpc";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import { MODULE_IDENTITY, ModuleMasthead, SuiteMasthead } from "@/components/programs";
+import ProgramsEngineeringLogo from "@/components/ProgramsEngineeringLogo";
 import {
   computeRolePermissions,
   isProjectUnavailable,
@@ -125,7 +126,7 @@ export default function PrimaveraLiteProjectPage() {
             <CardTitle>Project Unavailable</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-pe-muted">
+            <p className="text-sm text-muted-foreground">
               {error?.message || "This project has been archived or the link is invalid."}
             </p>
           </CardContent>
@@ -136,28 +137,32 @@ export default function PrimaveraLiteProjectPage() {
 
   return (
     <div className="odm-canvas min-h-screen">
-      {/*
-        Suite identity above module identity — the white-dominant mastheads
-        replace the previous dark navy header. The identity link keeps the
-        "Dashboard Home" contract, and the previously white-on-navy role and
-        revision read-outs move into the module row as brand badges so they
-        stay legible on white.
-      */}
-      <SuiteMasthead linkAriaLabel="Dashboard Home" linkTitle="Dashboard Home" />
-
-      <ModuleMasthead
-        showIdentityRow={false}
-        icon={MODULE_IDENTITY.primavera.icon}
-        tone={MODULE_IDENTITY.primavera.tone}
-        title={data.project?.name || slug}
-        subtitle="Primavera Lite — schedule, WBS, activities and dependencies"
-        actions={
-          <>
-            <span className="pe-badge pe-badge--blue">Role: {data.role}</span>
-            <span className="pe-badge">Revision: {data.revision}</span>
-          </>
-        }
-      />
+      <header
+        className="sticky top-0 z-50"
+        style={{
+          background: "var(--pe-white)",
+          boxShadow: "var(--odm-shadow-sm)",
+        }}
+      >
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+          <Link
+            to="/"
+            aria-label="Dashboard Home"
+            title="Dashboard Home"
+            className="flex items-center gap-3 text-pe-text-strong no-underline"
+          >
+            <ProgramsEngineeringLogo size={56} borderRadius={8} tight />
+            <div className="min-w-0">
+              <h1 className="text-base font-bold leading-tight sm:text-lg truncate">{data.project?.name || slug}</h1>
+              <p className="text-[0.65rem] uppercase tracking-[0.22em] opacity-70">Primavera Lite</p>
+            </div>
+          </Link>
+          <div className="flex items-center gap-2 text-xs text-pe-text-muted">
+            <span className="hidden sm:inline">Role: {data.role}</span>
+            <span className="hidden sm:inline">Revision: {data.revision}</span>
+          </div>
+        </div>
+      </header>
 
       <meta name="referrer" content="no-referrer" />
       <main className="mx-auto max-w-4xl space-y-6 p-6">
@@ -167,13 +172,13 @@ export default function PrimaveraLiteProjectPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm text-pe-muted">
+              <div className="text-sm text-muted-foreground">
                 Role: {data.role} | Revision: {data.revision} | Last Scheduled:{" "}
                 {data.project?.lastScheduledAt
                   ? new Date(data.project.lastScheduledAt).toLocaleString()
                   : "Never"}
                 {data.project?.scheduleOutOfDate && (
-                  <span role="status" className="ml-2 font-semibold text-odm-warning">Schedule Out of Date</span>
+                  <span role="status" className="ml-2 font-semibold text-amber-700">Schedule Out of Date</span>
                 )}
               </div>
               {isAdmin && (
@@ -186,19 +191,20 @@ export default function PrimaveraLiteProjectPage() {
                     type="date"
                     value={dataDateDraft}
                     onChange={(e) => setDataDateDraft(e.target.value)}
-                    className="pe-focusable h-9 rounded-md border border-pe-border-strong bg-white px-2 text-sm text-pe-text outline-none"
+                    className="h-9 rounded border px-2 text-sm"
                     aria-label="Project Data Date"
                   />
-                  <button
+                  <Button
                     type="button"
-                    className="pe-btn pe-btn--secondary"
+                    size="sm"
+                    variant="outline"
                     onClick={handleDataDateSave}
                     disabled={updateProjectMeta.isPending}
                   >
                     {updateProjectMeta.isPending ? "Saving…" : "Set Data Date"}
-                  </button>
+                  </Button>
                   {updateProjectMeta.error && (
-                    <span className="text-xs text-odm-danger">
+                    <span className="text-xs text-red-600">
                       {updateProjectMeta.error.message}
                     </span>
                   )}
@@ -206,16 +212,15 @@ export default function PrimaveraLiteProjectPage() {
               )}
               {canEdit && (
                 <div className="flex items-center gap-2">
-                  <button
+                  <Button
                     type="button"
-                    className="pe-btn pe-btn--primary"
                     onClick={handleRunSchedule}
                     disabled={runSchedule.isPending}
                   >
                     {runSchedule.isPending ? "Scheduling…" : "Run Schedule"}
-                  </button>
+                  </Button>
                   {runSchedule.error && (
-                    <span className="text-xs text-odm-danger">
+                    <span className="text-xs text-red-600">
                       {runSchedule.error.message}
                     </span>
                   )}
@@ -246,14 +251,13 @@ export default function PrimaveraLiteProjectPage() {
             />
 
             {isAdmin && (
-              <button
-                type="button"
-                className="pe-btn pe-btn--danger"
+              <Button
+                variant="destructive"
                 onClick={handleArchiveProject}
                 disabled={archiveProjectDryRun.isPending || archiveProject.isPending}
               >
                 {archiveProject.isPending ? "Archiving…" : "Archive Project"}
-              </button>
+              </Button>
             )}
 
             <ActivityGrid slug={slug} access={access} role={data.role} expectedRevision={expectedRevision}
