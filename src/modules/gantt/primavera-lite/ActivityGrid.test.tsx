@@ -365,3 +365,22 @@ describe("ActivityGrid progress panel scoping", () => {
     expect(screen.getByLabelText("Actual Start")).toHaveValue("");
   });
 });
+
+describe("ActivityGrid row-height / scroll-alignment contract", () => {
+  afterEach(() => cleanup());
+
+  it("keeps the 40px row contract and renders the progress panel outside the row viewport", async () => {
+    // The grid and the Timeline are stacked but share one vertical scroll
+    // position, keyed to SCHEDULE_ROW_HEIGHT. The focused progress editor must
+    // therefore never inject rows into the table or the scroll viewport.
+    renderGrid("editor", [makeRow(1), makeRow(2)]);
+    const viewport = screen.getByTestId("activity-grid-scroll-viewport");
+    await userEvent.click(screen.getByRole("button", { name: "Update progress for Activity 1" }));
+    const panel = screen.getByTestId("activity-progress-panel");
+    expect(viewport.contains(panel)).toBe(false);
+    expect(viewport.querySelectorAll("tbody tr")).toHaveLength(2);
+    for (const row of viewport.querySelectorAll("tbody tr")) {
+      expect((row as HTMLElement).style.height).toBe("40px");
+    }
+  });
+});
