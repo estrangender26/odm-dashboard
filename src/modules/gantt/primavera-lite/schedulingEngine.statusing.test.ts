@@ -134,6 +134,61 @@ describe("statusing: recorded actuals are execution facts", () => {
   });
 });
 
+describe("statusing: a completed activity without a recorded Actual Start", () => {
+  it("places the completed work at its recorded Actual Finish instead of the Data Date", () => {
+    // Regression: the completed shortcut fell back to the anchor for a missing
+    // Actual Start, so a completion recorded before the Data Date produced
+    // earlyStart = Data Date with earlyFinish = the earlier finish — a finish
+    // BEFORE its start, persisted by Run Schedule.
+    const rows = schedule(
+      [activity({ id: 1, percentComplete: 100, actualStart: null, actualFinish: "2026-01-07" })],
+      [],
+      "2026-01-19"
+    );
+    expect(rows[0].earlyStart).toBe("2026-01-07");
+    expect(rows[0].earlyFinish).toBe("2026-01-07");
+    expect(rows[0].earlyFinish < rows[0].earlyStart).toBe(false);
+  });
+
+  it("never reports any completed activity as finishing before it starts", () => {
+    const cases: Array<Partial<ScheduleActivityInput>> = [
+      { actualStart: null, actualFinish: "2026-01-07" },
+      { actualStart: null, actualFinish: null },
+      { actualStart: "2026-01-05", actualFinish: "2026-01-07" },
+      { actualStart: "2026-01-05", actualFinish: null },
+    ];
+    for (const overrides of cases) {
+      const rows = schedule([activity({ id: 1, percentComplete: 100, ...overrides })], [], "2026-01-19");
+      expect(rows[0].earlyFinish >= rows[0].earlyStart).toBe(true);
+    }
+  });
+
+  it("still anchors a completed activity with no actual dates at the Data Date", () => {
+    const rows = schedule([activity({ id: 1, percentComplete: 100, actualStart: null, actualFinish: null })], [], "2026-01-19");
+    expect(rows[0].earlyStart).toBe("2026-01-19");
+    expect(rows[0].earlyFinish).toBe("2026-01-19");
+  });
+
+  it("anchors an SS successor on the recorded completion, not on the Data Date", () => {
+    // Before the fix the start-less completed row carried ES = anchor, so an SS
+    // successor was released weeks before the predecessor had actually finished.
+    const rows = schedule([
+      activity({ id: 1, percentComplete: 100, actualStart: null, actualFinish: "2026-02-02" }),
+      activity({ id: 2, percentComplete: 0 }),
+    ], [{ id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "SS", lagDays: 0 }], "2026-01-05");
+    expect(rows[0].earlyStart).toBe("2026-02-02");
+    expect(rows[1].earlyStart).toBe("2026-02-02");
+  });
+
+  it("still releases an FS successor the working day after the recorded finish", () => {
+    const rows = schedule([
+      activity({ id: 1, percentComplete: 100, actualStart: null, actualFinish: "2026-01-07" }),
+      activity({ id: 2, percentComplete: 0 }),
+    ], [{ id: 1, predecessorActivityId: 1, successorActivityId: 2, dependencyType: "FS", lagDays: 0 }], "2026-01-05");
+    expect(rows[1].earlyStart).toBe("2026-01-08");
+  });
+});
+
 describe("statusing: Data Date movement", () => {
   it("moves unfinished work later when the Data Date advances", () => {
     const early = schedule([activity({ id: 1, percentComplete: 0 })], [], "2026-01-05");

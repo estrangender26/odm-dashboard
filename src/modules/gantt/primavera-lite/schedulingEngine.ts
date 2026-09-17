@@ -471,7 +471,16 @@ export function runScheduleEngine(
     // (anchor fallback only when no actual start exists). plannedStart/
     // plannedFinish are NEVER read, and the Data Date floor never applies.
     if (act.percentComplete === 100) {
-      const esStr = isValidISOString(act.actualStart) ? act.actualStart! : anchorDateStr;
+      // A recorded Actual Finish is itself an execution fact, so a completed
+      // activity with no recorded Actual Start is placed at its finish. Falling
+      // back to the anchor instead produced earlyStart = Data Date with
+      // earlyFinish = the earlier recorded finish, i.e. a finish BEFORE its
+      // start, persisted by Run Schedule and inherited by every SS/SF successor.
+      const esStr = isValidISOString(act.actualStart)
+        ? act.actualStart!
+        : isValidISOString(act.actualFinish)
+          ? act.actualFinish!
+          : anchorDateStr;
       const efStr = isValidISOString(act.actualFinish) ? act.actualFinish! : esStr;
       const es = dateToCalendarDay(esStr);
       const ef = dateToCalendarDay(efStr);
