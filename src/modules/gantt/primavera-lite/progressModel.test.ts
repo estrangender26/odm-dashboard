@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveProgressState,
+  deriveRemainingDuration,
   isCompletedState,
   percentAfterClearingActualFinish,
   resolveProgress,
@@ -160,5 +161,70 @@ describe("progressModel — deliberate transitions (T1 / T2)", () => {
     expect(r.ok).toBe(true);
     expect(r.noop).toBe(true);
     expect(r.values).toEqual({});
+  });
+});
+
+describe("progressModel — remaining duration under a stored default of 0 (statusing)", () => {
+  const legacyInProgress: ProgressFields = { ...base, percentComplete: 25 };
+
+  it("derives remaining duration instead of treating the stored default 0 as a forecast", () => {
+    expect(deriveRemainingDuration(5, 25, 0)).toBe(4);
+    expect(deriveRemainingDuration(5, 25, null)).toBe(4);
+    expect(deriveRemainingDuration(5, 25, undefined)).toBe(4);
+  });
+
+  it("keeps an explicit positive remaining duration as the forecast", () => {
+    expect(deriveRemainingDuration(5, 25, 3)).toBe(3);
+    expect(deriveRemainingDuration(10, 90, 7)).toBe(7);
+  });
+
+  it("keeps the not-started and completed boundaries unchanged", () => {
+    expect(deriveRemainingDuration(5, 0, 0)).toBe(0);
+    expect(deriveRemainingDuration(5, 100, 0)).toBe(0);
+  });
+
+  it("persists the derived remaining duration when progress is recorded (forward repair)", () => {
+    const r = resolveProgress({ current: base, changes: { percentComplete: 25 }, dataDate: null, mode: "update" });
+    expect(r.ok).toBe(true);
+    expect(r.values?.percentComplete).toBe(25);
+    expect(r.values?.remainingDurationDays).toBe(4);
+  });
+
+  it("rejects an explicit zero remaining duration for in-progress work (V10)", () => {
+    const r = resolveProgress({
+      current: base,
+      changes: { percentComplete: 25, remainingDurationDays: 0 },
+      dataDate: null,
+      mode: "update",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/at least 1 day of remaining duration/);
+  });
+
+  it("still allows an explicit zero remaining duration for not-started work", () => {
+    const r = resolveProgress({ current: base, changes: { remainingDurationDays: 0 }, dataDate: null, mode: "update" });
+    expect(r.ok).toBe(true);
+  });
+
+  it("leaves a legacy in-progress row with a stored 0 editable for unrelated edits", () => {
+    const r = resolveProgress({
+      current: legacyInProgress,
+      changes: { activityName: "Renamed" } as unknown as Partial<ProgressFields>,
+      dataDate: null,
+      mode: "update",
+    });
+    expect(r.ok).toBe(true);
+    expect(r.noop).toBe(true);
+  });
+
+  it("honours an explicit positive remaining duration supplied together with progress", () => {
+    const r = resolveProgress({
+      current: base,
+      changes: { percentComplete: 25, remainingDurationDays: 3 },
+      dataDate: null,
+      mode: "update",
+    });
+    expect(r.ok).toBe(true);
+    expect(r.values?.remainingDurationDays).toBe(3);
   });
 });

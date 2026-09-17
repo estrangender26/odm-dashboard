@@ -293,17 +293,19 @@ export function getWorkingDuration(act: ScheduleActivityInput): number {
   // Completion is a canonical progress fact: percentComplete === 100. Arbitrary
   // status strings never drive scheduling (F-10).
   if (act.percentComplete === 100) return 0;
+  // A positive stored Remaining Duration is the forecast and always wins.
+  // A stored ZERO is NOT a forecast for unfinished work: remaining_duration_days
+  // is NOT NULL DEFAULT 0, so 0 is what every row carries until someone records
+  // a real remaining value. Treating it as "no work left" silently collapsed an
+  // in-progress activity to zero duration (ES === EF, falsely critical) instead
+  // of scheduling the work that is demonstrably still outstanding, so a zero
+  // falls through to the percent-derived duration below.
   if (
     act.remainingDurationDays !== undefined &&
     act.remainingDurationDays !== null &&
-    act.remainingDurationDays >= 0
+    act.remainingDurationDays > 0
   ) {
-    if (act.percentComplete && act.percentComplete > 0) {
-      return act.remainingDurationDays;
-    }
-    if (act.remainingDurationDays > 0) {
-      return act.remainingDurationDays;
-    }
+    return act.remainingDurationDays;
   }
   if (
     act.originalDurationDays !== undefined &&
