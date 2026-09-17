@@ -266,3 +266,54 @@ describe("ActivityGrid restore", () => {
     expect(active.queryByRole("button", { name: /Restore Activity 1/i })).not.toBeInTheDocument();
   });
 });
+
+describe("ActivityGrid statusing surface", () => {
+  beforeEach(() => {
+    captured.archive.length = 0;
+    captured.restore.length = 0;
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("adds a derived Status column and a read-only Remaining duration column", () => {
+    renderGrid("editor", [makeRow(1, { percentComplete: 25, originalDurationDays: 5 })]);
+    expect(screen.getByRole("columnheader", { name: "Remaining" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    // 25% of 5 days leaves 4 working days of forecast work.
+    expect(screen.getByTestId("activity-remaining-1")).toHaveTextContent("4");
+    expect(screen.getByText("In progress")).toBeInTheDocument();
+  });
+
+  it("shows the derived lifecycle for every role and never the stored status string", () => {
+    renderGrid("viewer", [
+      makeRow(1, { percentComplete: 0, status: "completed" }),
+      makeRow(2, { percentComplete: 100, actualStart: "2026-01-05", actualFinish: "2026-01-06", status: "in-progress" }),
+    ]);
+    expect(screen.getByText("Not started")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.queryByText("in-progress")).not.toBeInTheDocument();
+  });
+
+  it("lets an editor open the focused progress editor from the status cell", async () => {
+    renderGrid("editor", [makeRow(1)]);
+    expect(screen.queryByTestId("activity-progress-panel")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Update progress for Activity 1" }));
+    expect(screen.getByTestId("activity-progress-panel")).toBeInTheDocument();
+    expect(screen.getByLabelText("Remaining Duration (days)")).toBeInTheDocument();
+  });
+
+  it("leaves viewers a read-only status with no progress editor", () => {
+    renderGrid("viewer", [makeRow(1)]);
+    expect(screen.getByText("Not started")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Update progress for/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("activity-progress-panel")).not.toBeInTheDocument();
+  });
+
+  it("offers no progress editor for archived rows", async () => {
+    renderGrid("editor", [archivedRow]);
+    await showArchived();
+    expect(screen.queryByRole("button", { name: /Update progress for Archived Activity/ })).not.toBeInTheDocument();
+  });
+});

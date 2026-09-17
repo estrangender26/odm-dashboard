@@ -9,6 +9,11 @@ import {
   validateHundredPercentEdit,
   SCHEDULE_ROW_HEIGHT, type ActivityGridRow, type ConflictRecovery,
 } from "./activityGridModel";
+import ActivityProgressPanel from "./ActivityProgressPanel";
+import {
+  activityLifecycle, forecastRemainingDays, LIFECYCLE_CHIP_CLASS, LIFECYCLE_LABELS,
+} from "./statusingModel";
+import type { ProgressFields } from "./progressModel";
 
 type WbsNode = { id: number; code: string; name: string; isLeaf: boolean; archivedAt?: string | Date | null };
 type Calendar = { id: number; name: string };
@@ -78,6 +83,10 @@ export default function ActivityGrid(props: Props) {
   const [conflict, setConflict] = useState<ConflictRecovery>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<number | null>(null);
+  // Focused statusing surface: one activity at a time, so the grid does not
+  // need a permanent column for every progress field.
+  const [progressActivityId, setProgressActivityId] = useState<number | null>(null);
+  const [progressError, setProgressError] = useState<string | null>(null);
   const rowsViewportRef = useRef<HTMLDivElement>(null);
   const selectedNewWbs = selectValidNewWbs(newWbs, leafNodes.map((node) => node.id));
 
@@ -134,6 +143,28 @@ export default function ActivityGrid(props: Props) {
         await props.onRefresh();
       }
       setMessage(error.message);
+    },
+  });
+  // A separate instance of the same procedure so a progress-panel save reports
+  // its own error/conflict state without disturbing inline cell editing.
+  const updateProgress = trpc.primaveraLite.updateActivity.useMutation({
+    onMutate: async (input) => {
+      await utils.primaveraLite.load.cancel(queryInput);
+      const snapshot = utils.primaveraLite.load.getData(queryInput);
+      setCachedActivities((rows) => optimisticActivityEdit(rows, input.activityId, input.changes, props.dataDate));
+      return { snapshot };
+    },
+    onSuccess: (result) => {
+      props.onRevisionChange(result.revision);
+      setCachedActivities((rows) => optimisticActivityEdit(rows, result.activity.id, result.activity));
+      setProgressError(null);
+      setProgressActivityId(null);
+      props.onEditingChange(false);
+    },
+    onError: async (error, _input, context) => {
+      if (context?.snapshot) utils.primaveraLite.load.setData(queryInput, context.snapshot);
+      setProgressError(isConflict(error) ? `${error.message} Reload the project, then re-enter the progress update.` : error.message);
+      if (isConflict(error)) await props.onRefresh();
     },
   });
   const archiveDryRun = trpc.primaveraLite.archiveActivityDryRun.useMutation();
@@ -252,6 +283,23 @@ export default function ActivityGrid(props: Props) {
   function restore(activityId: number) {
     restoreActivity.mutate({ slug, access, expectedRevision, activityId });
   }
+  function openProgress(activity: ActivityGridRow) {
+    setProgressError(null);
+    setProgressActivityId(activity.id);
+    // Pause the page's polling refresh while progress is being entered so a
+    // background load cannot replace the row under the editor.
+    props.onEditingChange(true);
+  }
+  function closeProgress() {
+    setProgressActivityId(null);
+    setProgressError(null);
+    props.onEditingChange(false);
+  }
+  function saveProgress(changes: Partial<ProgressFields>) {
+    if (progressActivityId == null) return;
+    setProgressError(null);
+    updateProgress.mutate({ slug, access, expectedRevision, activityId: progressActivityId, changes });
+  }
   function dropOn(target: ActivityGridRow) {
     if (!canEdit || draggedId == null || draggedId === target.id) return;
     reorderActivity.mutate({ slug, access, expectedRevision, activityId: draggedId, targetWbsNodeId: target.wbsNodeId, newSortOrder: target.sortOrder });
@@ -288,6 +336,33 @@ export default function ActivityGrid(props: Props) {
     );
   };
 
+  /** Derived lifecycle chip. Editors can open the focused progress editor from
+   *  it; every role sees the derived status (never the stored status string). */
+  const statusCell = (activity: ActivityGridRow) => {
+    const lifecycle = activityLifecycle(activity);
+    const chip = (
+      <span className={`inline-block rounded border px-1.5 py-0.5 text-xs ${LIFECYCLE_CHIP_CLASS[lifecycle]}`}>
+        {LIFECYCLE_LABELS[lifecycle]}
+      </span>
+    );
+    if (!canEdit || activity.archivedAt) return chip;
+    return (
+      <button
+        type="button"
+        onClick={() => openProgress(activity)}
+        aria-label={`Update progress for ${activity.activityName}`}
+        title="Update progress"
+        className="rounded px-1 py-0.5 hover:bg-slate-100"
+      >
+        {chip}
+      </button>
+    );
+  };
+
+  const progressActivity = progressActivityId == null
+    ? null
+    : props.activities.find((activity) => activity.id === progressActivityId) ?? null;
+
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Activities</h3><div className="flex items-center gap-2">{hasArchived && <label className="flex items-center gap-1 text-xs text-muted-foreground"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived</label>}<span className="text-xs text-muted-foreground">{activities.length} activities</span></div></div>
@@ -303,10 +378,20 @@ export default function ActivityGrid(props: Props) {
         </div>
       )}
       {message && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">{message}{conflict && <span> Your attempted value is preserved; retry the highlighted edit.</span>}</div>}
+      {progressActivity && (
+        <ActivityProgressPanel
+          activity={progressActivity}
+          dataDate={props.dataDate}
+          pending={updateProgress.isPending}
+          error={progressError}
+          onSave={saveProgress}
+          onCancel={closeProgress}
+        />
+      )}
       <div ref={rowsViewportRef} onScroll={(event) => props.onVerticalScroll?.(event.currentTarget.scrollTop)}
         className="max-h-[520px] overflow-auto rounded border bg-white" data-testid="activity-grid-scroll-viewport">
         <table className="w-full min-w-[2200px] text-sm">
-          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">Type</th><th className="p-2">WBS</th><th className="p-2">Planned start</th><th className="p-2">Planned finish</th><th className="p-2">Actual start</th><th className="p-2">Actual finish</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">% complete</th><th className="p-2">Early start</th><th className="p-2">Early finish</th><th className="p-2">Late start</th><th className="p-2">Late finish</th><th className="p-2">Total float</th><th className="w-16 p-2">Archive</th></tr></thead>
+          <thead className="sticky top-0 z-20 bg-slate-100 text-left"><tr style={{ height: SCHEDULE_ROW_HEIGHT }}><th className="w-10 p-2" aria-label="Reorder"/><th className="p-2">Activity ID</th><th className="p-2">Activity name</th><th className="p-2">Type</th><th className="p-2">WBS</th><th className="p-2">Planned start</th><th className="p-2">Planned finish</th><th className="p-2">Actual start</th><th className="p-2">Actual finish</th><th className="p-2">Original duration</th><th className="p-2">Calendar</th><th className="p-2">% complete</th><th className="p-2">Remaining</th><th className="p-2">Status</th><th className="p-2">Early start</th><th className="p-2">Early finish</th><th className="p-2">Late start</th><th className="p-2">Late finish</th><th className="p-2">Total float</th><th className="w-16 p-2">Archive</th></tr></thead>
           <tbody>{activities.map((activity) => (
             <tr key={activity.id} draggable={canEdit && !activity.archivedAt} onDragStart={() => setDraggedId(activity.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(activity)}
               onMouseEnter={() => props.onActivityHighlight?.(activity.id)} onMouseLeave={() => props.onActivityHighlight?.(null)}
@@ -323,6 +408,8 @@ export default function ActivityGrid(props: Props) {
               <td className="p-1">{editableCell(activity, "originalDurationDays", "number")}</td>
               <td className="p-1">{activity.archivedAt ? <span className="px-2">{calendars.find((c) => c.id === activity.calendarId)?.name ?? "Project default / unassigned"}</span> : <select disabled={!canEdit} value={activity.calendarId ?? ""} onChange={(e) => submitEdit(activity, "calendarId", e.target.value)} className="h-8 w-full rounded border px-1 disabled:border-transparent disabled:appearance-none"><option value="">Project default / unassigned</option>{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select>}</td>
               <td className="p-1">{editableCell(activity, "percentComplete", "number")}</td>
+              <td className="p-2 text-muted-foreground" data-testid={`activity-remaining-${activity.id}`}>{forecastRemainingDays(activity)}</td>
+              <td className="p-1">{statusCell(activity)}</td>
               <td className="p-2 text-muted-foreground">{formatDate(activity.earlyStart) || "—"}</td>
               <td className="p-2 text-muted-foreground">{formatDate(activity.earlyFinish) || "—"}</td>
               <td className="p-2 text-muted-foreground">{formatDate(activity.lateStart) || "—"}</td>
