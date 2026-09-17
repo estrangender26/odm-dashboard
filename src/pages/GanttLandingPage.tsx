@@ -82,8 +82,8 @@ export default function GanttLandingPage() {
                         href={link.adminUrl}
                         className="block rounded border bg-white p-3 text-sm hover:bg-slate-100"
                       >
-                        <div className="font-medium">{link.name || link.slug}</div>
-                        <div className="text-xs text-muted-foreground">{link.slug}</div>
+                        <div className="break-words font-medium">{link.name || link.slug}</div>
+                        <div className="break-words text-xs text-muted-foreground">{link.slug}</div>
                       </a>
                     </li>
                   ))}
