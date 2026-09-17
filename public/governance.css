@@ -2,13 +2,15 @@
 /* Preserves all existing content order. Only layout changes. */
 
 :root{
-  --mw-navy:#0B1D44;--mw-navy2:#07132E;--mw-blue:#0066A6;--mw-cyan:#00A8D2;--mw-aqua:#2AAA8A;
-  --mw-bg:#EEF2F6;--mw-card:#FFFFFF;--mw-border:#D6DFE8;--mw-text:#0F172A;--mw-muted:#5A6B7D;
-  --mw-success:#0A9B6E;--mw-success-bg:#E6F5EF;--mw-warning:#D97706;--mw-warning-bg:#FEF3C7;
-  --mw-danger:#DC2626;--mw-danger-bg:#FEF2F2;--mw-orange:#E8890C;
-  --r-sm:4px;--r-md:6px;--r-lg:8px;
-  --sh-sm:0 1px 2px rgba(0,0,0,.04);--sh-md:0 2px 8px rgba(0,0,0,.06);
-  --sh-card:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.04);
+  /* Programs Engineering identity — aliased from public/programs-engineering.css
+     so this page shares one brand source with the rest of the suite. */
+  --mw-navy:#1E3A4C;--mw-navy2:#16303F;--mw-blue:var(--pe-blue);--mw-cyan:var(--pe-blue-light);--mw-aqua:var(--pe-teal);
+  --mw-bg:var(--pe-bg);--mw-card:#FFFFFF;--mw-border:var(--pe-border);--mw-text:var(--pe-text);--mw-muted:var(--pe-text-muted);
+  --mw-success:var(--pe-success);--mw-success-bg:var(--pe-success-bg);--mw-warning:var(--pe-warning);--mw-warning-bg:var(--pe-warning-bg);
+  --mw-danger:var(--pe-danger);--mw-danger-bg:var(--pe-danger-bg);--mw-orange:var(--pe-warning);
+  --r-sm:6px;--r-md:8px;--r-lg:10px;
+  --sh-sm:var(--pe-shadow-xs);--sh-md:var(--pe-shadow-sm);
+  --sh-card:var(--pe-shadow-sm);
 }
 
 /* ===== GLOBAL ===== */

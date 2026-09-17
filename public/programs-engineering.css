@@ -1,0 +1,409 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROGRAMS ENGINEERING — SHARED STATIC-SURFACE STYLESHEET
+   ---------------------------------------------------------------------------
+   The React surface gets the brand from src/index.css + tailwind.config.js.
+   This file is the equivalent single source of truth for the standalone HTML
+   dashboards, which load no React or Tailwind bundle:
+
+     /governance             public/governance.html   (+ governance.css)
+     /mw-dashboard           public/mw-dashboard.html (inline <style>)
+     /scorecard-kpi          public/scorecard-kpi.html (inline <style>)
+
+   It does two jobs:
+     1. Publishes the --pe-* brand tokens.
+     2. Retunes each standalone dashboard's own dark-navy chrome to the
+        Programs Engineering identity, which the reference banner establishes
+        as white-dominant with engineering blue and teal — not a dark dashboard.
+
+   Loaded AFTER each page's own stylesheet so it can win without !important,
+   except where a page sets an inline style attribute on its own markup.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── BRAND — derived from the Programs Engineering banner ──────────────── */
+  --pe-blue: #258ac1;
+  --pe-blue-deep: #1878b3;
+  --pe-blue-light: #4aa2d3;
+  --pe-teal: #2fb19f;
+  --pe-teal-deep: #209c8c;
+  --pe-teal-light: #55c0ae;
+  --pe-text: #26343d;
+  --pe-text-strong: #1b2830;
+  --pe-text-muted: #56636b;
+  --pe-text-faint: #7c8a93;
+  --pe-border: #dce6ea;
+  --pe-border-strong: #c2d4db;
+  --pe-bg: #f5f9fa;
+  --pe-white: #ffffff;
+
+  --pe-gradient: linear-gradient(90deg, var(--pe-blue) 0%, var(--pe-teal) 100%);
+  --pe-gradient-soft: linear-gradient(90deg, #eaf4fb 0%, #e6f5f2 100%);
+  /* Action variant: same identity, darkened so WHITE button text clears
+     WCAG AA (>= 4.5:1). The bright sweep above is decorative only — it reaches
+     just 3.8:1 / 2.7:1 against white and must not carry text. */
+  --pe-gradient-action: linear-gradient(90deg, #1878b3 0%, #178073 100%);
+
+  --pe-blue-soft: #eaf4fb;
+  --pe-blue-border: #bfe0f2;
+  --pe-blue-ink: #1b6ea0;
+  --pe-teal-soft: #e7f6f3;
+  --pe-teal-border: #b6e4dc;
+  --pe-teal-ink: #1c7c6f;
+
+  --pe-success: #0f9d6b;
+  --pe-success-bg: #e8f7f1;
+  --pe-success-border: #b3e6d2;
+  --pe-warning: #c2740a;
+  --pe-warning-bg: #fdf5e6;
+  --pe-warning-border: #f4dcae;
+  --pe-danger: #d0342f;
+  --pe-danger-bg: #fdeeee;
+  --pe-danger-border: #f5c9c7;
+  --pe-neutral-bg: #eef3f5;
+  --pe-neutral-ink: #4d5b64;
+
+  --pe-surface: #ffffff;
+  --pe-surface-sunk: #edf4f7;
+  --pe-table-header: #eef5f8;
+  --pe-row-hover: #f2f8fb;
+  --pe-row-selected: #e7f6f3;
+
+  --pe-radius-sm: 6px;
+  --pe-radius: 10px;
+  --pe-radius-lg: 14px;
+  --pe-shadow-xs: 0 1px 2px rgba(38, 52, 61, 0.05);
+  --pe-shadow-sm: 0 1px 3px rgba(38, 52, 61, 0.07);
+  --pe-shadow-md: 0 4px 14px rgba(38, 52, 61, 0.09);
+  --pe-shadow-lg: 0 12px 30px rgba(38, 52, 61, 0.11);
+  --pe-focus: 0 0 0 2px var(--pe-white), 0 0 0 4px rgba(37, 138, 193, 0.45);
+  --pe-transition: 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SHARED BRAND PRIMITIVES
+   Mirrors the .pe-* classes in src/index.css so both surfaces stay in step.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pe-gradient-rule {
+  height: 3px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--pe-gradient);
+}
+
+.pe-wordmark {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.pe-wordmark__line1 {
+  color: var(--pe-blue);
+}
+
+.pe-wordmark__line2 {
+  color: var(--pe-teal);
+}
+
+.pe-orb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  color: var(--pe-white);
+  background: var(--pe-blue);
+}
+
+.pe-orb--blue { background: var(--pe-blue); }
+.pe-orb--teal { background: var(--pe-teal); }
+.pe-orb--soft-blue {
+  background: var(--pe-blue-soft);
+  color: var(--pe-blue-ink);
+  border: 1px solid var(--pe-blue-border);
+}
+.pe-orb--soft-teal {
+  background: var(--pe-teal-soft);
+  color: var(--pe-teal-ink);
+  border: 1px solid var(--pe-teal-border);
+}
+
+.pe-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--pe-radius-sm);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--pe-transition), border-color var(--pe-transition),
+    color var(--pe-transition), box-shadow var(--pe-transition);
+}
+
+.pe-btn--primary {
+  background: var(--pe-gradient-action);
+  color: var(--pe-white);
+}
+
+.pe-btn--secondary {
+  background: var(--pe-white);
+  color: var(--pe-blue-ink);
+  border-color: var(--pe-blue-border);
+}
+
+.pe-btn--secondary:hover {
+  background: var(--pe-blue-soft);
+  border-color: var(--pe-blue);
+}
+
+.pe-btn--ghost {
+  background: transparent;
+  color: var(--pe-text-muted);
+}
+
+.pe-btn--ghost:hover {
+  background: var(--pe-surface-sunk);
+  color: var(--pe-text);
+}
+
+.pe-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  background: var(--pe-neutral-bg);
+  color: var(--pe-neutral-ink);
+  border: 1px solid var(--pe-border);
+}
+
+.pe-badge--blue {
+  background: var(--pe-blue-soft);
+  color: var(--pe-blue-ink);
+  border-color: var(--pe-blue-border);
+}
+
+.pe-badge--teal {
+  background: var(--pe-teal-soft);
+  color: var(--pe-teal-ink);
+  border-color: var(--pe-teal-border);
+}
+
+.pe-card {
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: var(--pe-radius-lg);
+}
+
+.pe-table thead th {
+  background: var(--pe-table-header);
+  color: var(--pe-text);
+  font-weight: 700;
+  border-bottom: 1px solid var(--pe-border-strong);
+}
+
+.pe-table tbody tr:hover > td {
+  background: var(--pe-row-hover);
+}
+
+.pe-table tbody tr.is-selected > td,
+.pe-table tbody tr[aria-selected="true"] > td {
+  background: var(--pe-row-selected);
+}
+
+.pe-focusable:focus-visible {
+  outline: none;
+  box-shadow: var(--pe-focus);
+}
+
+.pe-dots {
+  background-image: radial-gradient(var(--pe-border-strong) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIGHT PROGRAMS ENGINEERING MASTHEAD
+   ---------------------------------------------------------------------------
+   All three standalone dashboards ship a dark navy header. The reference
+   banner is white-dominant, so the headers become a light compact masthead
+   carrying the blue → teal accent rule, and every control inside them is
+   re-voiced for a light background so contrast is not lost.
+
+   Selectors are scoped to the three known page headers:
+     .hdr        governance.html, scorecard-kpi.html
+     .app-header mw-dashboard.html
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.hdr,
+.app-header {
+  background: var(--pe-white) !important;
+  background-image: none !important;
+  color: var(--pe-text) !important;
+  border-bottom: 1px solid var(--pe-border) !important;
+  box-shadow: var(--pe-shadow-xs) !important;
+}
+
+/* The banner's blue → teal sweep as a hairline under the masthead. */
+.hdr::after,
+.app-header::after {
+  content: "";
+  display: block;
+  height: 2px;
+  background: var(--pe-gradient);
+}
+
+/* Masthead typography — several pages hard-code #fff inline, so these
+   need !important to reach them. */
+.hdr .brand,
+.hdr .brand h1,
+.hdr .brand span,
+.hdr .brand-title,
+.app-header .brand,
+.app-header .brand h1,
+.app-header .brand span,
+.app-header .brand-title,
+.app-header h1,
+.hdr h1 {
+  color: var(--pe-text-strong) !important;
+}
+
+.hdr .brand span,
+.app-header .brand span,
+.hdr .brand-sub,
+.app-header .brand-sub {
+  color: var(--pe-text-muted) !important;
+  opacity: 1 !important;
+}
+
+/* The vertical divider beside the logo was white-on-navy. */
+.hdr .brand > div[style*="border-left"],
+.hdr .brand div[style*="rgba(255,255,255"] {
+  border-left-color: var(--pe-border-strong) !important;
+}
+
+/* ── Controls inside the masthead ────────────────────────────────────────── */
+
+.hdr .acts select,
+.hdr .acts input,
+.hdr .acts button,
+.app-header .acts select,
+.app-header .acts input,
+.app-header .acts button,
+.app-header .header-actions select,
+.app-header .header-actions input,
+.app-header .header-actions button,
+.app-header .header-center button {
+  background: var(--pe-surface) !important;
+  color: var(--pe-text) !important;
+  border: 1px solid var(--pe-border-strong) !important;
+  border-radius: var(--pe-radius-sm) !important;
+}
+
+.hdr .acts select:focus-visible,
+.hdr .acts input:focus-visible,
+.hdr .acts button:focus-visible,
+.app-header .header-actions button:focus-visible {
+  outline: none !important;
+  box-shadow: var(--pe-focus) !important;
+}
+
+.hdr .acts select option,
+.app-header .header-actions select option {
+  background: var(--pe-white) !important;
+  color: var(--pe-text) !important;
+}
+
+/* Date inputs were inverted for the dark header. */
+.hdr .acts input[type="date"],
+.app-header .header-actions input[type="date"] {
+  color-scheme: light !important;
+  color: var(--pe-text) !important;
+}
+
+.hdr .acts input[type="date"]::-webkit-calendar-picker-indicator,
+.app-header .header-actions input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none !important;
+  cursor: pointer;
+}
+
+.hdr .acts input[type="date"]::placeholder,
+.app-header .header-actions input[type="date"]::placeholder {
+  color: var(--pe-text-faint) !important;
+}
+
+/* Primary action keeps the brand gradient; it was a solid cyan before. */
+.hdr .btn-p,
+.hdr .btn-primary,
+.app-header .btn-p,
+.app-header .btn.btn-primary,
+.app-header .header-actions .btn-p,
+.app-header .header-actions .btn-primary {
+  background: var(--pe-gradient-action) !important;
+  color: var(--pe-white) !important;
+  border-color: transparent !important;
+}
+
+/* Secondary / ghost actions were translucent white on navy. */
+.hdr .acts .btn-g,
+.app-header .header-actions .btn-g,
+.app-header .header-actions .btn-ghost {
+  background: var(--pe-white) !important;
+  color: var(--pe-blue-ink) !important;
+  border: 1px solid var(--pe-blue-border) !important;
+}
+
+/* Destructive stays explicitly red — never restyled to brand teal. */
+.hdr .acts .btn-r,
+.app-header .header-actions .btn-r,
+.app-header .header-actions .btn-danger {
+  background: var(--pe-danger-bg) !important;
+  color: var(--pe-danger) !important;
+  border: 1px solid var(--pe-danger-border) !important;
+}
+
+/* Header chips / labels were tuned for the dark bar. */
+.hdr .hdr-chip label,
+.app-header .hdr-chip label {
+  color: var(--pe-text-muted) !important;
+}
+
+/* Filename / meta text inside the MW header was rgba(255,255,255,.7). */
+.app-header .header-filename,
+.app-header .header-meta {
+  color: var(--pe-text-muted) !important;
+}
+
+/* Hamburger / icon buttons that drew white strokes. */
+.app-header .header-actions svg,
+.app-header .header-center svg {
+  color: var(--pe-text) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAGE CANVAS + SURFACES
+   The reference is white-dominant with a soft neutral page background.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+body {
+  background: var(--pe-bg);
+  color: var(--pe-text);
+}
+
+/* Reduced motion is respected for any brand transition. */
+@media (prefers-reduced-motion: reduce) {
+  .pe-btn,
+  .pe-card {
+    transition: none !important;
+  }
+}

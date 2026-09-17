@@ -26,42 +26,43 @@
        MANILA WATER ENTERPRISE DESIGN SYSTEM
        ============================================================ */
     :root {
-      /* Brand Colors */
-      --mw-primary:       #005BAC;
-      --mw-primary-light: #0077CC;
-      --mw-accent:        #00AEEF;
-      --mw-aqua:          #4FC3F7;
-      --mw-navy:          #16324F;
-      --mw-navy-light:    #1E3F5E;
-      --mw-navy-dark:     #0D2137;
+      /* Brand Colors — Programs Engineering identity, aliased from
+         public/programs-engineering.css so the suite shares one brand source. */
+      --mw-primary:       var(--pe-blue);
+      --mw-primary-light: var(--pe-blue-light);
+      --mw-accent:        var(--pe-blue-light);
+      --mw-aqua:          var(--pe-teal-light);
+      --mw-navy:          #1E3A4C;
+      --mw-navy-light:    #294A5E;
+      --mw-navy-dark:     #16303F;
 
       /* Semantic Colors */
-      --success:          #1F9D55;
-      --success-light:    #E8F5E9;
-      --warning:          #F59E0B;
-      --warning-light:    #FEF3C7;
-      --danger:           #DC2626;
-      --danger-light:     #FEE2E2;
-      --info:             #005BAC;
-      --info-light:       #E3F2FD;
+      --success:          var(--pe-success);
+      --success-light:    var(--pe-success-bg);
+      --warning:          var(--pe-warning);
+      --warning-light:    var(--pe-warning-bg);
+      --danger:           var(--pe-danger);
+      --danger-light:     var(--pe-danger-bg);
+      --info:             var(--pe-blue);
+      --info-light:       var(--pe-blue-soft);
 
       /* Backgrounds */
-      --bg-primary: #F8FAFC;
-      --bg-secondary: #F1F5F9;
+      --bg-primary: var(--pe-bg);
+      --bg-secondary: var(--pe-surface-sunk);
       --bg-card:          #FFFFFF;
       --bg-glass:         rgba(255,255,255,0.72);
       --bg-elevated:      #FFFFFF;
-      --bg-hover: #F1F5F9;
+      --bg-hover: var(--pe-surface-sunk);
 
       /* Borders */
-      --border-subtle: #E2E8F0;
-      --border-light: #E2E8F0;
-      --border-medium: #CBD5E1;
+      --border-subtle: var(--pe-border);
+      --border-light: var(--pe-border);
+      --border-medium: var(--pe-border-strong);
 
       /* Text */
-      --text-primary:     #16324F;
-      --text-secondary: #64748B;
-      --text-muted: #94A3B8;
+      --text-primary:     var(--pe-text-strong);
+      --text-secondary: var(--pe-text-muted);
+      --text-muted: var(--pe-text-faint);
       --text-inverse:     #FFFFFF;
 
       /* Shadows */
@@ -1386,6 +1387,9 @@
       .ai-chip { font-size: 10px; padding: 4px 10px; }
     }
   </style>
+  <!-- Programs Engineering suite identity. Loaded last so the shared brand
+       tokens and light masthead win over this page's own dark-navy chrome. -->
+  <link rel="stylesheet" href="/programs-engineering.css?v=1" />
 </head>
 
 <body>
