@@ -137,9 +137,16 @@ export function autoActualFinishFromDataDate(
 /**
  * Remaining working duration:
  * - completed (pct 100 with a finish) -> 0;
- * - explicit value (already validated >= 0) -> explicit;
+ * - explicit POSITIVE value -> explicit (the forecast the owner entered);
  * - 0 < pct < 100 -> max(1, round(original * (1 - pct/100)));
  * - pct 0 -> 0 (the engine falls back to the original duration).
+ *
+ * An explicit zero is deliberately NOT treated as a forecast for unfinished
+ * work: remaining_duration_days is NOT NULL DEFAULT 0, so a zero is both "the
+ * column default" and "no work left", and reading it as the latter collapsed
+ * in-progress activities to zero duration. Only a completed activity has no
+ * remaining work; progressModel.resolveProgress rejects an explicit zero for
+ * in-progress activities so the ambiguity cannot be introduced by hand either.
  */
 export function deriveRemainingDuration(
   originalDurationDays: number | null | undefined,
@@ -148,7 +155,7 @@ export function deriveRemainingDuration(
 ): number {
   const pct = percentComplete ?? 0;
   if (pct >= 100) return 0;
-  if (explicitRemaining != null) return explicitRemaining;
+  if (explicitRemaining != null && explicitRemaining > 0) return explicitRemaining;
   const orig = originalDurationDays ?? 0;
   if (pct > 0 && pct < 100) return Math.max(1, Math.round(orig * (1 - pct / 100)));
   return 0;
@@ -267,6 +274,16 @@ export function resolveProgress(ctx: ResolveContext): ProgressResult {
   // NULL); comparisons treat them as equivalent.
   const statusEquivalent = (a: string | null | undefined, b: string | null | undefined): boolean =>
     (a ?? "not-started") === (b ?? "not-started");
+
+  // V10 — an in-progress activity cannot have zero remaining work: work that is
+  // started but not finished is, by definition, still outstanding. Only an
+  // EXPLICIT zero is contradictory (a stored zero is the NOT NULL DEFAULT 0
+  // column value and is superseded by derivation below), mirroring V4.
+  if (!completedNow && hasRem && rem === 0 && pct > 0 && pct < 100) {
+    return fail(
+      "An in-progress activity must have at least 1 day of remaining duration; set percent complete to 100 to complete it, or leave Remaining Duration blank to derive it"
+    );
+  }
 
   // V4 — completed with positive remaining duration (only an EXPLICIT remaining
   // value is contradictory; a stored value is superseded by completion).

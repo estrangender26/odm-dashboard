@@ -293,17 +293,19 @@ export function getWorkingDuration(act: ScheduleActivityInput): number {
   // Completion is a canonical progress fact: percentComplete === 100. Arbitrary
   // status strings never drive scheduling (F-10).
   if (act.percentComplete === 100) return 0;
+  // A positive stored Remaining Duration is the forecast and always wins.
+  // A stored ZERO is NOT a forecast for unfinished work: remaining_duration_days
+  // is NOT NULL DEFAULT 0, so 0 is what every row carries until someone records
+  // a real remaining value. Treating it as "no work left" silently collapsed an
+  // in-progress activity to zero duration (ES === EF, falsely critical) instead
+  // of scheduling the work that is demonstrably still outstanding, so a zero
+  // falls through to the percent-derived duration below.
   if (
     act.remainingDurationDays !== undefined &&
     act.remainingDurationDays !== null &&
-    act.remainingDurationDays >= 0
+    act.remainingDurationDays > 0
   ) {
-    if (act.percentComplete && act.percentComplete > 0) {
-      return act.remainingDurationDays;
-    }
-    if (act.remainingDurationDays > 0) {
-      return act.remainingDurationDays;
-    }
+    return act.remainingDurationDays;
   }
   if (
     act.originalDurationDays !== undefined &&
@@ -469,7 +471,16 @@ export function runScheduleEngine(
     // (anchor fallback only when no actual start exists). plannedStart/
     // plannedFinish are NEVER read, and the Data Date floor never applies.
     if (act.percentComplete === 100) {
-      const esStr = isValidISOString(act.actualStart) ? act.actualStart! : anchorDateStr;
+      // A recorded Actual Finish is itself an execution fact, so a completed
+      // activity with no recorded Actual Start is placed at its finish. Falling
+      // back to the anchor instead produced earlyStart = Data Date with
+      // earlyFinish = the earlier recorded finish, i.e. a finish BEFORE its
+      // start, persisted by Run Schedule and inherited by every SS/SF successor.
+      const esStr = isValidISOString(act.actualStart)
+        ? act.actualStart!
+        : isValidISOString(act.actualFinish)
+          ? act.actualFinish!
+          : anchorDateStr;
       const efStr = isValidISOString(act.actualFinish) ? act.actualFinish! : esStr;
       const es = dateToCalendarDay(esStr);
       const ef = dateToCalendarDay(efStr);

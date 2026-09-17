@@ -13,6 +13,7 @@ import {
   stripTokenPath,
 } from "@/modules/gantt/primavera-lite/pageState";
 import WbsTree from "@/modules/gantt/primavera-lite/WbsTree";
+import StatusingPanel from "@/modules/gantt/primavera-lite/StatusingPanel";
 import CalendarPanel from "@/modules/gantt/primavera-lite/CalendarPanel";
 import ActivityGrid from "@/modules/gantt/primavera-lite/ActivityGrid";
 import Timeline from "@/modules/gantt/primavera-lite/Timeline";
@@ -181,35 +182,6 @@ export default function PrimaveraLiteProjectPage() {
                   <span role="status" className="ml-2 font-semibold text-amber-700">Schedule Out of Date</span>
                 )}
               </div>
-              {isAdmin && (
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <label className="text-xs font-medium" htmlFor="project-data-date">
-                    Data Date
-                  </label>
-                  <input
-                    id="project-data-date"
-                    type="date"
-                    value={dataDateDraft}
-                    onChange={(e) => setDataDateDraft(e.target.value)}
-                    className="h-9 rounded border px-2 text-sm"
-                    aria-label="Project Data Date"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={handleDataDateSave}
-                    disabled={updateProjectMeta.isPending}
-                  >
-                    {updateProjectMeta.isPending ? "Saving…" : "Set Data Date"}
-                  </Button>
-                  {updateProjectMeta.error && (
-                    <span className="text-xs text-red-600">
-                      {updateProjectMeta.error.message}
-                    </span>
-                  )}
-                </div>
-              )}
               {canEdit && (
                 <div className="flex items-center gap-2">
                   <Button
@@ -227,6 +199,18 @@ export default function PrimaveraLiteProjectPage() {
                 </div>
               )}
             </div>
+
+            <StatusingPanel
+              activities={data.activities}
+              dataDate={data.project?.dataDate ?? null}
+              scheduleOutOfDate={data.project?.scheduleOutOfDate ?? false}
+              isAdmin={isAdmin}
+              dataDateDraft={dataDateDraft}
+              onDataDateDraftChange={setDataDateDraft}
+              onSaveDataDate={handleDataDateSave}
+              savingDataDate={updateProjectMeta.isPending}
+              dataDateError={updateProjectMeta.error?.message ?? null}
+            />
 
             <WbsTree
               slug={slug}

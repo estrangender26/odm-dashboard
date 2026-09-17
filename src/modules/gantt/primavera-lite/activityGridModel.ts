@@ -18,6 +18,10 @@ export type ActivityGridRow = {
   freeFloatDays?: number | null;
   actualStart?: string | null;
   actualFinish?: string | null;
+  /** Stored forecast remaining duration; edited through the progress panel. */
+  remainingDurationDays?: number | null;
+  /** Stored derived lifecycle; the canonical derivation lives in statusingModel. */
+  status?: string | null;
   archivedAt?: string | Date | null;
 };
 

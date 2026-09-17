@@ -46,3 +46,23 @@ Agent rule:
 - Never test destructive containment against production; use `api/mw-router-fake-db.ts` or an isolated database.
 - `importExcel` must stay upsert-only. Making it authenticated is an OWNER decision (it requires a login affordance on the dashboard first).
 - The canonical inspection identity is `(asset_tag, task, date, submitted_at)`; the router's conflict target must match the schema constraint.
+
+## Primavera Lite — Progress Updating, Data Date and Schedule Statusing
+
+Decision:
+Statusing is a **recorded-fact** workflow, not a P6 clone. Execution truth lives in `gantt_activities.actual_start` / `actual_finish`; the project status boundary lives in `gantt_projects.data_date`; forecast effort lives in `remaining_duration_days`; `percent_complete` is the single progress percentage. Activity lifecycle (not-started / in-progress / completed) is **derived** from those facts by `progressModel.deriveProgressState` and is never hand-maintained — the stored `status` column only ever receives the derived value.
+
+Rules frozen for the statusing feature:
+- `data_date` is explicit and project-controlled. It is never auto-advanced, and a missing Data Date is surfaced as a notice instead of being silently replaced by today's date (Run Schedule still falls back to the current date for backward compatibility, and the workspace says so).
+- Actual Start / Actual Finish are execution facts: schedule recalculation never moves them, and the engine returns new objects rather than mutating inputs.
+- A stored `remaining_duration_days` of **0 is not a forecast**. The column is `NOT NULL DEFAULT 0`, so 0 is what every row carries until someone records a real value. Reading it as "no work left" silently collapsed in-progress activities to zero duration (`ES === EF`, false critical path); the engine and `deriveRemainingDuration` now treat an in-progress activity's remaining work as at least 1 working day unless an explicit positive value is stored, and `resolveProgress` rejects an explicitly supplied 0 for in-progress work (V10) while leaving legacy rows with a stored 0 fully editable.
+- Lifecycle, remaining forecast and the statusing roll-up are computed by `src/modules/gantt/primavera-lite/statusingModel.ts`, which delegates duration to the scheduling engine's own `getWorkingDuration` so the panel and Run Schedule can never disagree.
+- The statusing roll-up is read-only for every role; changing the Data Date stays admin-only; progress edits stay editor-or-admin and continue to go through the existing `updateActivity` mutation, optimistic-concurrency check and audit event.
+
+Context:
+An architecture review found that the persistence layer, the API (`updateActivity` → `resolveProgress`) and the engine already modelled progress, but there was no way to enter or see Remaining Duration in the UI, no derived status or statusing roll-up anywhere, and the stored-zero defect above meant recorded progress produced a collapsed, falsely critical schedule.
+
+Agent rule:
+- Do not add a second progress percentage system, a second status vocabulary, or a parallel mutation path for progress.
+- Do not make recalculation rewrite actual dates, and do not let a missing Data Date be silently replaced by wall-clock today.
+- If the UI needs another statusing field, extend the focused progress panel rather than appending permanent ActivityGrid columns.
