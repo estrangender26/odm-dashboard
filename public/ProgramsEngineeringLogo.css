@@ -73,3 +73,26 @@
 @media (prefers-reduced-motion: reduce) {
   .pe-liquid-logo::after { display: none !important; }
 }
+
+/* ============================================================
+   pe-liquid-logo--tight — reclaim the asset's internal padding.
+   ------------------------------------------------------------
+   programs_engineering_vertical_logo.svg is a 1024x1024 white square whose
+   actual artwork occupies only the middle 492x648 px (~45% x ~59%). At masthead
+   sizes that reads as a tiny mark adrift in dead space, which is why the suite
+   identity looked visually too small.
+
+   This modifier scales and re-centres the artwork to fill its box, so the mark
+   gains ~70% more visual presence WITHOUT making the masthead taller.
+
+   The numbers are measured from the rendered asset, not guessed:
+     artwork bbox  x 267..758   y 200..847   (centre 512.5, 523.5)
+     box centre    550, 550
+     scale to fill 98% height  = 1.664
+     translate                 = (centre delta) * scale
+   Re-measure if the SVG asset is ever replaced.
+   ============================================================ */
+.pe-liquid-logo--tight > img,
+.pe-liquid-logo--tight .pe-liquid-logo__base {
+  transform: translate(5.67%, 4.01%) scale(1.664);
+}

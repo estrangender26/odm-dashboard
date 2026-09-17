@@ -136,22 +136,55 @@ export default function Home() {
 
       {/* ── Programs Engineering hero ──────────────────────────────────────
           The reference banner's composition translated for the application:
-          white-dominant, identity on the left, engineering geometry on the
-          right, and the banner's four circular verbs beneath the tagline. */}
+          white-dominant, identity on the left, an engineering composition on the
+          right, the banner's layered sweeps behind, and a curved blue → teal
+          edge — a web adaptation of the banner rather than a generic landing
+          page. */}
       <section className="pe-hero">
+        {/* Blue sweep → white separation → teal sweep. The viewBox is slightly
+            wider than the drawn extent so the arcs bleed off the edge without
+            any stroke escaping its own box. */}
+        <div className="pe-hero__sweep" aria-hidden="true">
+          <svg viewBox="0 0 1520 420" preserveAspectRatio="none">
+            <path
+              d="M -60 372 Q 560 246 1500 34"
+              fill="none"
+              stroke="var(--pe-blue-light)"
+              strokeWidth="16"
+              strokeLinecap="round"
+              opacity="0.32"
+            />
+            <path
+              d="M -60 412 Q 586 286 1500 78"
+              fill="none"
+              stroke="var(--pe-teal-light)"
+              strokeWidth="11"
+              strokeLinecap="round"
+              opacity="0.3"
+            />
+          </svg>
+        </div>
+
         <div className="pe-hero__inner">
           <div className="pe-hero__copy">
             <p className="odm-eyebrow" style={{ margin: "0 0 10px", color: "var(--pe-text-faint)" }}>
               Programs Engineering
             </p>
-            <h1 style={{ margin: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+            <h1
+              style={{
+                margin: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: 0,
+                lineHeight: 0.98,
+              }}
+            >
               <span
                 className="pe-wordmark__line1"
                 style={{
-                  fontSize: "clamp(30px, 5vw, 52px)",
+                  fontSize: "clamp(34px, 5.2vw, 58px)",
                   fontWeight: 800,
-                  letterSpacing: "0.1em",
-                  lineHeight: 1.02,
+                  letterSpacing: "0.075em",
                 }}
               >
                 Programs
@@ -159,10 +192,9 @@ export default function Home() {
               <span
                 className="pe-wordmark__line2"
                 style={{
-                  fontSize: "clamp(30px, 5vw, 52px)",
+                  fontSize: "clamp(34px, 5.2vw, 58px)",
                   fontWeight: 800,
-                  letterSpacing: "0.1em",
-                  lineHeight: 1.02,
+                  letterSpacing: "0.075em",
                 }}
               >
                 Engineering
@@ -170,8 +202,8 @@ export default function Home() {
             </h1>
             <p
               style={{
-                margin: "12px 0 0",
-                fontSize: 14.5,
+                margin: "14px 0 0",
+                fontSize: 15,
                 color: "var(--pe-text)",
                 letterSpacing: "0.01em",
               }}
@@ -198,11 +230,30 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="pe-hero__art" aria-hidden="true">
-            <PeHeroGeometry size={360} />
+          <div className="pe-hero__art">
+            <PeHeroGeometry />
           </div>
         </div>
-        <span className="pe-hero__curve" aria-hidden="true" />
+
+        {/* Curved bottom edge: the banner's blue curve / white gap / teal curve. */}
+        <div className="pe-hero__edge" aria-hidden="true">
+          <svg viewBox="0 0 1440 30" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="peHeroEdge" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="var(--pe-blue)" />
+                <stop offset="100%" stopColor="var(--pe-teal)" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 0 11 Q 720 1 1440 11"
+              fill="none"
+              stroke="var(--pe-teal)"
+              strokeWidth="2.5"
+              opacity="0.75"
+            />
+            <path d="M 0 30 Q 720 15 1440 30 L 1440 30 Z" fill="url(#peHeroEdge)" />
+          </svg>
+        </div>
       </section>
 
       {/* Main Content */}

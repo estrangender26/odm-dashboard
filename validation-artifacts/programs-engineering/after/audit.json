@@ -1,6 +1,6 @@
 {
   "phase": "after",
-  "baseUrl": "http://localhost:5199",
+  "baseUrl": "http://localhost:3000",
   "viewport": {
     "width": 1440,
     "height": 900
@@ -14,9 +14,13 @@
       "title": "Program Oversight Center",
       "scrollW": 1440,
       "clientW": 1440,
-      "scrollH": 1367,
+      "scrollH": 1405,
       "bodyBg": "rgb(255, 255, 255)",
-      "worstOverflow": null,
+      "worstOverflow": {
+        "over": 60,
+        "tag": "path",
+        "cls": "[object SVGAnimatedString]"
+      },
       "consoleErrors": [
         "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
       ],
@@ -38,9 +42,9 @@
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-        "[API] fetchStateFromDB error: Error: HTTP 500\n    at fetchStateFromDB (http://localhost:5199/governance.html:652:23)\n    at async INIT (http://localhost:5199/governance.html:1227:11)",
+        "[API] fetchStateFromDB error: Error: HTTP 500\n    at fetchStateFromDB (http://localhost:3000/governance.html:652:23)\n    at async INIT (http://localhost:3000/governance.html:1227:11)",
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-        "[API] fetchStateFromDB error: Error: HTTP 500\n    at fetchStateFromDB (http://localhost:5199/governance.html:652:23)\n    at async INIT (http://localhost:5199/governance.html:1227:11)"
+        "[API] fetchStateFromDB error: Error: HTTP 500\n    at fetchStateFromDB (http://localhost:3000/governance.html:652:23)\n    at async INIT (http://localhost:3000/governance.html:1227:11)"
       ],
       "failedRequests": [],
       "horizontalOverflow": false
@@ -58,7 +62,7 @@
       "worstOverflow": null,
       "consoleErrors": [
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-        "Saved KPI load error: Error: DATABASE_URL not set\n    at fetchSavedMonthlyKpiRecords (http://localhost:5199/scorecard-kpi.html:2912:22)"
+        "Saved KPI load error: Error: DATABASE_URL not set\n    at fetchSavedMonthlyKpiRecords (http://localhost:3000/scorecard-kpi.html:2912:22)"
       ],
       "failedRequests": [],
       "horizontalOverflow": false
@@ -76,7 +80,7 @@
       "worstOverflow": null,
       "consoleErrors": [
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-        "DB load failed: Error: HTTP 500\n    at xhr.onload (http://localhost:5199/mw-dashboard.html:2934:34)"
+        "DB load failed: Error: HTTP 500\n    at xhr.onload (http://localhost:3000/mw-dashboard.html:2934:34)"
       ],
       "failedRequests": [],
       "horizontalOverflow": false
@@ -175,14 +179,14 @@
       "title": "Program Oversight Center",
       "scrollW": 1440,
       "clientW": 1440,
-      "scrollH": 2514,
+      "scrollH": 2517,
       "bodyBg": "rgb(255, 255, 255)",
       "worstOverflow": null,
       "consoleErrors": [
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-        "[PresentationCenter] Failed to load uploaded files Error: Failed to load presentation files.\n    at listPresentationFiles (http://localhost:5199/src/modules/presentation-center/presentationFilesApi.ts:11:11)\n    at async getUploadedPresenta",
+        "[PresentationCenter] Failed to load uploaded files Error: Failed to load presentation files.\n    at listPresentationFiles (http://localhost:3000/src/modules/presentation-center/presentationFilesApi.ts:11:11)\n    at async getUploadedPresenta",
         "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-        "[PresentationCenter] Failed to load generated presentations Error: Failed to load presentation files.\n    at listPresentationFiles (http://localhost:5199/src/modules/presentation-center/presentationFilesApi.ts:11:11)\n    at async getGenerat"
+        "[PresentationCenter] Failed to load generated presentations Error: Failed to load presentation files.\n    at listPresentationFiles (http://localhost:3000/src/modules/presentation-center/presentationFilesApi.ts:11:11)\n    at async getGenerat"
       ],
       "failedRequests": [],
       "horizontalOverflow": false
@@ -210,7 +214,7 @@
       "title": "Program Oversight Center",
       "scrollW": 1440,
       "clientW": 1440,
-      "scrollH": 3054,
+      "scrollH": 3057,
       "bodyBg": "rgb(255, 255, 255)",
       "worstOverflow": null,
       "consoleErrors": [],

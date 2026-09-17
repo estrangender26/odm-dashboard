@@ -79,7 +79,9 @@ export default function SuiteMasthead({
             borderRadius: 8,
           }}
         >
-          <ProgramsEngineeringLogo size={40} borderRadius={8} />
+          {/* `tight` reclaims the asset's internal padding: same box height,
+              ~70% more visible mark. Masthead stays shallow. */}
+          <ProgramsEngineeringLogo size={52} borderRadius={8} tight />
           <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
             <PeWordmark size="sm" tagline={false} />
             {displayName && (

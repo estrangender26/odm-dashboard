@@ -17,6 +17,16 @@ interface Props {
   className?: string;
   style?: React.CSSProperties;
   alt?: string;
+  /**
+   * Reclaim the asset's internal padding so the mark fills its box.
+   *
+   * programs_engineering_vertical_logo.svg is a 1024x1024 white square whose
+   * artwork occupies only the middle ~45% x ~59%, so at masthead sizes the
+   * identity reads as much smaller than its box. `tight` scales and re-centres
+   * the artwork in place (see ProgramsEngineeringLogo.css) — more presence at
+   * the same box height, no taller masthead.
+   */
+  tight?: boolean;
 }
 
 const ProgramsEngineeringLogo: React.FC<Props> = ({
@@ -25,9 +35,10 @@ const ProgramsEngineeringLogo: React.FC<Props> = ({
   className = "",
   style,
   alt = "Programs",
+  tight = false,
 }) => (
   <span
-    className={`pe-liquid-logo ${className}`.trim()}
+    className={`pe-liquid-logo ${tight ? "pe-liquid-logo--tight" : ""} ${className}`.trim()}
     title="Return to Program Oversight Center"
     style={{
       width: size || undefined,
