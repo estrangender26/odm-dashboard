@@ -182,7 +182,7 @@ export default function PrimaveraLiteProjectPage() {
                 )}
               </div>
               {isAdmin && (
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <label className="text-xs font-medium" htmlFor="project-data-date">
                     Data Date
                   </label>

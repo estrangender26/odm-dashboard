@@ -291,11 +291,14 @@ export default function ActivityGrid(props: Props) {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Activities</h3><div className="flex items-center gap-2">{hasArchived && <label className="flex items-center gap-1 text-xs text-muted-foreground"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived</label>}<span className="text-xs text-muted-foreground">{activities.length} activities</span></div></div>
+      {/* The activity-name field takes its own row below the small breakpoint
+          and the selects may shrink, so this form can never push the page wider
+          than the viewport on tablet/mobile. At sm and up the layout is unchanged. */}
       {canEdit && (
         <div className="flex flex-wrap items-end gap-2 rounded border bg-white p-3">
-          <div className="min-w-64 flex-1"><label className="text-xs font-medium">Activity name</label><Input value={newName} onChange={(e) => setNewName(e.target.value)} /></div>
-          <div><label className="block text-xs font-medium">WBS</label><select className="h-9 rounded border px-2" value={selectedNewWbs ?? ""} onChange={(e) => setNewWbs(Number(e.target.value))}>{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></div>
-          <div><label className="block text-xs font-medium">Type</label><select className="h-9 rounded border px-2" value={newType} onChange={(e) => setNewType(e.target.value as "task" | "milestone")}><option value="task">Task</option><option value="milestone">Milestone</option></select></div>
+          <div className="min-w-0 basis-full sm:min-w-64 sm:flex-1"><label className="text-xs font-medium">Activity name</label><Input value={newName} onChange={(e) => setNewName(e.target.value)} /></div>
+          <div className="min-w-0 max-w-full"><label className="block text-xs font-medium">WBS</label><select className="h-9 max-w-full rounded border px-2" value={selectedNewWbs ?? ""} onChange={(e) => setNewWbs(Number(e.target.value))}>{leafNodes.map((node) => <option key={node.id} value={node.id}>{node.code} — {node.name}</option>)}</select></div>
+          <div className="min-w-0 max-w-full"><label className="block text-xs font-medium">Type</label><select className="h-9 max-w-full rounded border px-2" value={newType} onChange={(e) => setNewType(e.target.value as "task" | "milestone")}><option value="task">Task</option><option value="milestone">Milestone</option></select></div>
           <Button disabled={!newName.trim() || selectedNewWbs === null || createActivity.isPending} onClick={() => createActivity.mutate({ slug, access, expectedRevision, wbsNodeId: selectedNewWbs!, activity: { activityName: newName.trim(), activityType: newType } })}><Plus className="mr-1 h-4 w-4" />Add Activity</Button>
         </div>
       )}

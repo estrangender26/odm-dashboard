@@ -146,14 +146,14 @@ export default function DependencyPanel(props: Props) {
   };
 
   return <section className="space-y-3" aria-label="Dependencies">
-    <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Dependencies</h3><div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">Dependencies</h3><div className="flex min-w-0 flex-wrap items-center gap-2">
       <Button variant="outline" size="sm" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "Hide archived" : "Show archived"}</Button>
       <span className="text-xs text-muted-foreground">{dependencies.length} relationships</span>
     </div></div>
-    {canEdit && <div className="grid gap-2 rounded border bg-white p-3 md:grid-cols-[1fr_1fr_auto_7rem_auto]">
-      <select aria-label="New predecessor" className="h-9 rounded border px-2" value={selectedPredecessorId ?? ""} onChange={(event) => setPredecessorId(Number(event.target.value))}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activityLabel(activity.id)}</option>)}</select>
-      <select aria-label="New successor" className="h-9 rounded border px-2" value={selectedSuccessorId ?? ""} onChange={(event) => setSuccessorId(Number(event.target.value))}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activityLabel(activity.id)}</option>)}</select>
-      <select aria-label="New dependency type" className="h-9 rounded border px-2" value={type} onChange={(event) => setType(event.target.value as DependencyType)}>{TYPES.map((value) => <option key={value}>{value}</option>)}</select>
+    {canEdit && <div className="grid grid-cols-1 gap-2 rounded border bg-white p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_7rem_auto]">
+      <select aria-label="New predecessor" className="h-9 w-full min-w-0 rounded border px-2" value={selectedPredecessorId ?? ""} onChange={(event) => setPredecessorId(Number(event.target.value))}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activityLabel(activity.id)}</option>)}</select>
+      <select aria-label="New successor" className="h-9 w-full min-w-0 rounded border px-2" value={selectedSuccessorId ?? ""} onChange={(event) => setSuccessorId(Number(event.target.value))}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activityLabel(activity.id)}</option>)}</select>
+      <select aria-label="New dependency type" className="h-9 w-full min-w-0 rounded border px-2" value={type} onChange={(event) => setType(event.target.value as DependencyType)}>{TYPES.map((value) => <option key={value}>{value}</option>)}</select>
       <Input aria-label="New dependency lag" type="number" step="1" value={lagDays} onChange={(event) => setLagDays(Number(event.target.value))} />
       <Button onClick={create} disabled={selectedPredecessorId === null || selectedSuccessorId === null || createDependency.isPending}><Plus className="mr-1 h-4 w-4" />Add</Button>
     </div>}
