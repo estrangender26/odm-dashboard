@@ -81,7 +81,7 @@ export default function NotFound() {
                 textDecoration: "none",
               }}
             >
-              Back to suite
+              Back to Home
             </Link>
           </div>
         </section>
