@@ -1609,35 +1609,6 @@ function isValidDate(str: unknown): boolean {
   return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
 }
 
-// ═══ DB Cleanup: remove corrupted date values ═══
-app.post("/api/governance/cleanup-dates", async (c) => {
-  try {
-    const { getDb } = await import("./queries/connection");
-    const db = getDb();
-    // Clear corrupted ppp_date values (MySQL/TiDB compatible regex)
-    const ppResult = await db.execute(sql.raw(`
-      UPDATE governance_milestone_state
-      SET ppp_date = NULL
-      WHERE ppp_date IS NOT NULL
-        AND ppp_date NOT REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-    `));
-    // Clear corrupted comp_date values
-    const cdResult = await db.execute(sql.raw(`
-      UPDATE governance_milestone_state
-      SET comp_date = NULL
-      WHERE comp_date IS NOT NULL
-        AND comp_date NOT REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-    `));
-    return c.json({
-      success: true,
-      pppCleared: (ppResult as any).rowCount || 0,
-      compCleared: (cdResult as any).rowCount || 0
-    });
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
-  }
-});
-
 // POST /api/governance/state/:facilitySlug — save a milestone state
 app.post("/api/governance/state/:facilitySlug", async (c) => {
   try {

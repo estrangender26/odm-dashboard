@@ -1204,12 +1204,6 @@ function escapeHtml(text){
 async function INIT(){
   if(window._vdLog)window._vdLog('INIT','=== ENTER ===');
   console.log('[INIT] === ENTER ===');
-  // Auto-cleanup corrupted DB dates on every load
-  try{
-    var cleanupResp=await fetch(API_BASE+'/api/governance/cleanup-dates',{method:'POST'});
-    var cleanupData=await cleanupResp.json();
-    console.log('[INIT] DB cleanup:',JSON.stringify(cleanupData));
-  }catch(cleanupErr){console.log('[INIT] Cleanup skipped:',cleanupErr.message);}
   try{LD();console.log('[INIT] LD() done');if(window._vdLog)window._vdLog('INIT','LD done');}catch(e){console.error('[INIT] LD() FAILED:',e.message);window.onerror&&window.onerror('LD: '+e.message,'',0,0,e);if(window._vdLog)window._vdLog('FATAL','LD: '+e.message);return;}
   var f=document.getElementById('fs').value;
   console.log('[INIT] Facility:',f);if(window._vdLog)window._vdLog('INIT','Facility='+f);
