@@ -300,7 +300,7 @@ export default function WbsTree({
     return (
       <div key={node.id} className="select-none">
         <div
-          className={`flex items-center gap-2 py-1 pr-2 hover:bg-slate-100 rounded ${isArchived ? "opacity-60" : ""}`}
+          className={`flex flex-wrap items-center gap-2 py-1 pr-2 hover:bg-slate-100 rounded ${isArchived ? "opacity-60" : ""}`}
           style={{ paddingLeft: `${depth * 20 + 8}px` }}
         >
           <button
@@ -341,7 +341,7 @@ export default function WbsTree({
           )}
 
           {canEdit && !isEditing && !isArchived && (
-            <div className="flex items-center gap-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
               <Button
                 variant="ghost"
                 size="icon"
@@ -383,7 +383,7 @@ export default function WbsTree({
               {moveTargets.length > 0 && (
                 <select
                   aria-label={`Move ${node.name} to parent`}
-                  className="h-7 rounded border px-1 text-xs"
+                  className="h-7 min-w-0 max-w-full rounded border px-1 text-xs"
                   value=""
                   disabled={moveNode.isPending}
                   onChange={(e) => {
