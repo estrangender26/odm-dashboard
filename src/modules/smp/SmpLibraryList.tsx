@@ -189,7 +189,7 @@ export function SmpLibraryList({
                     </span>
                   </div>
                   <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-500 flex-wrap">
-                    {doc.smpFamily && <span className="text-indigo-600 font-medium">{doc.smpFamily}</span>}
+                    {doc.smpFamily && <span className="text-pe-blue-ink font-medium">{doc.smpFamily}</span>}
                     {doc.equipmentType && <span>{doc.equipmentType}</span>}
                     {doc.facilityType && <span>· {doc.facilityType}</span>}
                     {doc.criticality && <span>· ABC {doc.criticality}</span>}

@@ -45,10 +45,10 @@
 
   --pe-blue-soft: #eaf4fb;
   --pe-blue-border: #bfe0f2;
-  --pe-blue-ink: #1b6ea0;
+  --pe-blue-ink: #186390;
   --pe-teal-soft: #e7f6f3;
   --pe-teal-border: #b6e4dc;
-  --pe-teal-ink: #1c7c6f;
+  --pe-teal-ink: #1a7266;
 
   --pe-success: #0f9d6b;
   --pe-success-bg: #e8f7f1;
@@ -61,6 +61,12 @@
   --pe-danger-border: #f5c9c7;
   --pe-neutral-bg: #eef3f5;
   --pe-neutral-ink: #4d5b64;
+  /* Darkened semantic ink for small text on pale semantic backgrounds —
+     WCAG AA safe (5.91:1 / 5.89:1 / 6.39:1) where the mid-tone reads
+     3.14:1 / 3.34:1 / 4.42:1 at badge size. */
+  --pe-success-ink: #0b6b4a;
+  --pe-warning-ink: #8a5208;
+  --pe-danger-ink: #a32a26;
 
   --pe-surface: #ffffff;
   --pe-surface-sunk: #edf4f7;
@@ -198,6 +204,26 @@
   background: var(--pe-teal-soft);
   color: var(--pe-teal-ink);
   border-color: var(--pe-teal-border);
+}
+
+/* Semantic badge variants — meaning, never decoration. These use the darkened
+   ink values so small badge text clears WCAG AA on the pale backgrounds. */
+.pe-badge--success {
+  background: var(--pe-success-bg);
+  color: var(--pe-success-ink);
+  border-color: var(--pe-success-border);
+}
+
+.pe-badge--warning {
+  background: var(--pe-warning-bg);
+  color: var(--pe-warning-ink);
+  border-color: var(--pe-warning-border);
+}
+
+.pe-badge--danger {
+  background: var(--pe-danger-bg);
+  color: var(--pe-danger-ink);
+  border-color: var(--pe-danger-border);
 }
 
 .pe-card {

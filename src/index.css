@@ -126,10 +126,10 @@
   /* Tints — pale surfaces derived from brand, for orbs/badges/rows. */
   --pe-blue-soft: #eaf4fb;
   --pe-blue-border: #bfe0f2;
-  --pe-blue-ink: #1b6ea0;
+  --pe-blue-ink: #186390;
   --pe-teal-soft: #e7f6f3;
   --pe-teal-border: #b6e4dc;
-  --pe-teal-ink: #1c7c6f;
+  --pe-teal-ink: #1a7266;
 
   /* ── SEMANTIC — meaning, never decoration ──────────────────────────────── */
   --pe-success: #0f9d6b;
@@ -143,6 +143,14 @@
   --pe-danger-border: #f5c9c7;
   --pe-neutral-bg: #eef3f5;
   --pe-neutral-ink: #4d5b64;
+  /* Darkened semantic INK for small text on the pale semantic backgrounds.
+     The mid-tone --pe-success/warning/danger are for borders, marks and large
+     text; at badge size (10-11px) they measure only 3.14:1 / 3.34:1 / 4.42:1
+     on their own backgrounds, below the WCAG AA 4.5:1 floor. These ink values
+     are 5.91:1 / 5.89:1 / 6.39:1 while staying the same hue. */
+  --pe-success-ink: #0b6b4a;
+  --pe-warning-ink: #8a5208;
+  --pe-danger-ink: #a32a26;
 
   /* ── SURFACES ──────────────────────────────────────────────────────────── */
   --pe-surface: #ffffff;
@@ -477,17 +485,17 @@
   }
   .pe-badge--success {
     background: var(--pe-success-bg);
-    color: var(--pe-success);
+    color: var(--pe-success-ink);
     border-color: var(--pe-success-border);
   }
   .pe-badge--warning {
     background: var(--pe-warning-bg);
-    color: var(--pe-warning);
+    color: var(--pe-warning-ink);
     border-color: var(--pe-warning-border);
   }
   .pe-badge--danger {
     background: var(--pe-danger-bg);
-    color: var(--pe-danger);
+    color: var(--pe-danger-ink);
     border-color: var(--pe-danger-border);
   }
 
