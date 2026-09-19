@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const REPO = path.resolve(import.meta.dirname, "../..");
+const PKG_DIR = path.join(REPO, "packages/project-controls");
 const PKG_PREFIX = "packages/project-controls/";
 const SCAN_DIRS = ["src", "api", "db", "scripts", "contracts", "packages"];
 const EXT = new Set([".ts", ".tsx"]);
@@ -172,6 +173,43 @@ describe("project-controls extraction boundary", () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+
+  it("declares the package manifest and export contract", () => {
+    // The missing manifest was a review finding: the package identity must be
+    // declared, not merely implied by path aliases.
+    const manifestPath = path.join(PKG_DIR, "package.json");
+    expect(existsSync(manifestPath), "packages/project-controls/package.json must exist").toBe(true);
+
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      name?: string;
+      version?: string;
+      private?: boolean;
+      type?: string;
+      exports?: Record<string, string>;
+      dependencies?: Record<string, unknown>;
+      peerDependencies?: Record<string, unknown>;
+      optionalDependencies?: Record<string, unknown>;
+    };
+
+    expect(manifest.name).toBe("@lihok/project-controls");
+    expect(manifest.private).toBe(true);
+    expect(manifest.type).toBe("module");
+    expect(manifest.exports?.["."]).toBe("./src/index.ts");
+    expect(manifest.exports?.["./testing"]).toBe("./src/testing.ts");
+
+    // Zero runtime dependencies: the package is pure TypeScript.
+    const runtimeDeps = {
+      ...(manifest.dependencies ?? {}),
+      ...(manifest.peerDependencies ?? {}),
+      ...(manifest.optionalDependencies ?? {}),
+    };
+    expect(Object.keys(runtimeDeps)).toEqual([]);
+
+    // Every declared export target must actually exist in the package.
+    for (const target of Object.values(manifest.exports ?? {})) {
+      expect(existsSync(path.join(PKG_DIR, target)), `export target ${target} must exist`).toBe(true);
+    }
   });
 
   it("proves ODM actually consumes the package (guards against a vacuous boundary)", () => {
