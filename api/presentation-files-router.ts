@@ -426,7 +426,6 @@ router.post("/generated", async (c) => {
     const displayName = String(body.display_name ?? fileName);
     const title = String(body.title ?? "").trim() || displayName;
     const version = String(body.version ?? "").trim() || "1.0";
-    const fileSizeBytes = Number(body.file_size_bytes ?? 0);
     const fileBlob = String(body.file_blob ?? "");
     const sha256Hash = String(body.sha256_hash ?? "");
     const generatorId = body.generator_id ? String(body.generator_id) : null;
@@ -439,6 +438,26 @@ router.post("/generated", async (c) => {
       console.error("[PresentationFiles] generated upsert validation failed", { fileName: Boolean(fileName), fileBlob: Boolean(fileBlob), sha256Hash: Boolean(sha256Hash) });
       return c.json({ error: "file_name, file_blob, and sha256_hash are required." }, 400);
     }
+
+    // file_blob is the raw base64 of the PPTX bytes (never a data: URL or an
+    // API path). Decode and verify it is a real ZIP/PPTX so a corrupt save
+    // (e.g. a URL string or data-URL text stored as the blob) can never poison
+    // the library: PowerPoint would otherwise receive garbage bytes.
+    const buffer = Buffer.from(fileBlob, "base64");
+    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
+      console.error("[PresentationFiles] generated upsert rejected non-PPTX blob", {
+        fileName,
+        blobChars: fileBlob.length,
+        decodedBytes: buffer.length,
+      });
+      return c.json({ error: "Generated deck payload is not a valid PPTX file." }, 400);
+    }
+    if (buffer.length > MAX_FILE_SIZE_BYTES) {
+      return c.json({ error: "File is too large. Maximum upload size is 50 MB." }, 413);
+    }
+    // Always persist the server-computed hash of the DECODED bytes so row
+    // metadata always matches what /:id/download serves.
+    const verifiedHash = await sha256Buffer(buffer);
 
     // Look for an existing generated deck with the same logical key
     const existing = await db
@@ -463,9 +482,9 @@ router.post("/generated", async (c) => {
           displayName,
           title,
           version,
-          fileSizeBytes,
+          fileSizeBytes: buffer.length,
           fileBlob,
-          sha256Hash,
+          sha256Hash: verifiedHash,
           scopeJson,
           uploadedBy,
           updatedAt: now,
@@ -484,9 +503,9 @@ router.post("/generated", async (c) => {
         version,
         fileType: PPTX_MIME,
         mimeType: PPTX_MIME,
-        fileSizeBytes,
+        fileSizeBytes: buffer.length,
         fileBlob,
-        sha256Hash,
+        sha256Hash: verifiedHash,
         fileCategory: "generated_deck",
         generatorId,
         generatorName,

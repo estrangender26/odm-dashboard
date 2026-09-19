@@ -3,6 +3,8 @@ import type { GeneratedPresentation, UploadedPresentation } from "./types";
 import {
   cleanupGeneratedPresentationsHistory,
   createUploadedPresentation,
+  dataUrlBase64Payload,
+  base64ToBytes,
   deleteGeneratedPresentation,
   deleteUploadedPresentation,
   getGeneratedPresentations,
@@ -334,7 +336,7 @@ describe("presentation storage API-backed helpers", () => {
     });
   });
 
-  it("persists generated presentations to the backend with a non-empty sha256 hash", async () => {
+  it("persists generated presentations with the RAW base64 payload and a sha256 over the decoded bytes", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         file: {
@@ -343,7 +345,7 @@ describe("presentation storage API-backed helpers", () => {
           displayName: "odm.pptx",
           fileType: PPTX_MIME,
           mimeType: PPTX_MIME,
-          fileSizeBytes: 1234,
+          fileSizeBytes: 4,
           sha256Hash: "nonemptyhash",
           fileCategory: "generated_deck",
           generatorId: "operator-driven-maintenance",
@@ -369,9 +371,74 @@ describe("presentation storage API-backed helpers", () => {
     expect(callArgs[0]).toBe("/api/presentation-files/generated");
     const body = JSON.parse(callArgs[1].body as string);
     expect(body.file_name).toBe("generated.pptx");
-    expect(body.file_blob).toBe(deck.dataUrl);
-    expect(body.sha256_hash).toBeTruthy();
-    expect(body.sha256_hash).not.toBe("");
+    // Regression: the blob must be the raw base64 payload of the PPTX, never
+    // the full "data:...;base64," URL text (storing the URL text made every
+    // later download base64-decode garbage instead of the deck).
+    expect(body.file_blob).toBe("dGVzdA==");
+    expect(body.file_blob).not.toContain("data:");
+    expect(body.file_size_bytes).toBe(4);
+    // Hash must be sha256 over the DECODED bytes ("test"), not the URL text.
+    expect(body.sha256_hash).toBe(
+      "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    );
+  });
+
+  it("NEVER re-posts API-backed decks whose dataUrl is a download URL (stale/URL-as-blob corruption guard)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        file: {
+          id: 20,
+          fileName: "generated.pptx",
+          displayName: "generated.pptx",
+          fileType: PPTX_MIME,
+          mimeType: PPTX_MIME,
+          fileSizeBytes: 4,
+          sha256Hash: "hash",
+          fileCategory: "generated_deck",
+          uploadedBy: "ODM User",
+          createdAt: "2026-06-01T10:00:00Z",
+          updatedAt: "2026-06-01T10:00:00Z",
+        },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const apiBacked = makeGenerated({
+      id: "5",
+      dataUrl: "/api/presentation-files/5/download",
+      filename: "existing.pptx",
+      generatorId: "monthly-kpi-executive-scorecard",
+    });
+    const fresh = makeGenerated({
+      id: "local-2",
+      dataUrl: "data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,UEsDBBQACAAIAAAA",
+      filename: "fresh.pptx",
+      generatorId: "monthly-kpi-executive-scorecard",
+    });
+
+    await saveGeneratedPresentations([apiBacked, fresh]);
+
+    // Only the genuinely new deck (real data: URL) is posted.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.file_name).toBe("fresh.pptx");
+    expect(body.file_blob).toBe("UEsDBBQACAAIAAAA");
+  });
+
+  it("extracts the raw base64 payload from data URLs and rejects non-data values", () => {
+    expect(
+      dataUrlBase64Payload(
+        "data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,UEsDBBQACAAIAAAA"
+      )
+    ).toBe("UEsDBBQACAAIAAAA");
+    expect(dataUrlBase64Payload("/api/presentation-files/5/download")).toBeNull();
+    expect(dataUrlBase64Payload("https://example.com/file.pptx")).toBeNull();
+    expect(dataUrlBase64Payload("data:text/plain,hello")).toBeNull();
+  });
+
+  it("base64ToBytes decodes payloads byte-for-byte", () => {
+    const bytes = base64ToBytes("UEsDBBQACAAIAAAA");
+    expect(Array.from(bytes)).toEqual([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x08, 0x00, 0x08, 0x00, 0x00, 0x00]);
   });
 });
 
