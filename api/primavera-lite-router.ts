@@ -34,6 +34,14 @@ import {
 } from "@/modules/gantt/primavera-lite/schedulingEngine";
 import { isScheduleOutOfDate } from "@/modules/gantt/primavera-lite/scheduleStaleness";
 import {
+  buildProjectComparison,
+  compareActivityToBaseline,
+  type BaselineComparisonRow,
+  type BaselineSnapshotInput,
+  type CurrentActivityInput,
+} from "@/modules/gantt/primavera-lite/baselineVariance";
+import { summarizeStatusing } from "@/modules/gantt/primavera-lite/statusingModel";
+import {
   calendarAffectsActiveSchedule,
   validateWorkingDays,
   workingDaysEqual,
@@ -742,12 +750,56 @@ function mapBaselineRow(baseline: typeof ganttBaselines.$inferSelect) {
   } as any;
 }
 
-function calendarDayVariance(
-  currentDate: string | null | undefined,
-  baselineDate: string | null | undefined
-): number | null {
-  if (!currentDate || !baselineDate) return null;
-  return dateToCalendarDay(currentDate) - dateToCalendarDay(baselineDate);
+// `calendarDayVariance` now lives in the shared baseline variance module
+// (@/modules/gantt/primavera-lite/baselineVariance) so the server and the UI
+// derive variance from one implementation with one sign convention.
+
+/**
+ * Frozen baseline activity -> variance input. Only the stable `activityId` and
+ * the approved dates/duration take part in the comparison; the code and name
+ * travel along for readability only.
+ */
+function toVarianceSnapshotInput(
+  snapshot: typeof ganttBaselineActivities.$inferSelect
+): BaselineSnapshotInput {
+  return {
+    snapshotId: snapshot.id,
+    activityId: snapshot.activityId,
+    activityCode: snapshot.activityCode ?? null,
+    activityName: snapshot.activityName,
+    wbsNodeId: snapshot.wbsNodeId,
+    wbsCode: snapshot.wbsCode ?? null,
+    wbsName: snapshot.wbsName ?? null,
+    calendarId: snapshot.calendarId ?? null,
+    calendarName: snapshot.calendarName ?? null,
+    originalDurationDays: snapshot.originalDurationDays,
+    scheduledStart: snapshot.scheduledStart,
+    scheduledFinish: snapshot.scheduledFinish,
+  };
+}
+
+/** Current activity row -> variance input. Forecast dates, never actuals. */
+function toVarianceCurrentInput(
+  activity: typeof ganttActivities.$inferSelect,
+  wbsNode?: typeof ganttWbsNodes.$inferSelect
+): CurrentActivityInput {
+  return {
+    id: activity.id,
+    activityCode: activity.activityId ?? null,
+    activityName: activity.activityName,
+    wbsNodeId: activity.wbsNodeId,
+    wbsCode: wbsNode?.code ?? null,
+    wbsName: wbsNode?.name ?? null,
+    activityType: activity.activityType ?? null,
+    originalDurationDays: activity.originalDurationDays ?? 0,
+    remainingDurationDays: activity.remainingDurationDays ?? null,
+    percentComplete: activity.percentComplete ?? 0,
+    actualStart: activity.actualStart,
+    actualFinish: activity.actualFinish,
+    earlyStart: activity.earlyStart,
+    earlyFinish: activity.earlyFinish,
+    archivedAt: activity.archivedAt ?? null,
+  };
 }
 
 async function requireDependencyActivities(
@@ -3604,68 +3656,122 @@ export const primaveraLiteRouter = createRouter({
         .where(and(eq(ganttBaselines.id, input.baselineId), eq(ganttBaselines.projectId, accessCtx.projectId)));
       if (!baseline) throw new TRPCError({ code: "NOT_FOUND", message: "Baseline not found" });
 
-      // F-08: never present variances computed against a stale (or never
-      // scheduled) current schedule.
-      const freshness = await projectScheduleFreshness(db, accessCtx.projectId);
-      if (!freshness.everScheduled) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Run the schedule before comparing baseline variances.",
-        });
-      }
-      if (freshness.outOfDate) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Schedule is out of date; run the schedule before comparing baseline variances.",
-        });
-      }
+      // The frozen baseline, the current schedule AND the F-08 freshness check
+      // are read inside one transaction, so a comparison can neither straddle
+      // two project revisions nor pass staleness and then read a schedule that
+      // has just been invalidated.
+      const comparison = await db.transaction(async (tx) => {
+        const [projectRow] = await tx
+          .select()
+          .from(ganttProjects)
+          .where(eq(ganttProjects.id, accessCtx.projectId));
+        if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
 
-      const snapshots = await db
-        .select()
-        .from(ganttBaselineActivities)
-        .where(eq(ganttBaselineActivities.baselineId, baseline.id))
-        .orderBy(asc(ganttBaselineActivities.sortOrder), asc(ganttBaselineActivities.id));
+        // F-08: never present variances computed against a stale (or never
+        // scheduled) current schedule.
+        const freshness = await projectScheduleFreshness(tx, accessCtx.projectId);
+        if (!freshness.everScheduled) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Run the schedule before comparing baseline variances.",
+          });
+        }
+        if (freshness.outOfDate) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Schedule is out of date; run the schedule before comparing baseline variances.",
+          });
+        }
 
-      const activityIds = snapshots.map((s) => s.activityId);
-      const currentActivities =
-        activityIds.length > 0
-          ? await db.select().from(ganttActivities).where(inArray(ganttActivities.id, activityIds))
-          : [];
+        const snapshots = await tx
+          .select()
+          .from(ganttBaselineActivities)
+          .where(eq(ganttBaselineActivities.baselineId, baseline.id))
+          .orderBy(asc(ganttBaselineActivities.sortOrder), asc(ganttBaselineActivities.id));
 
-      const currentById = new Map(currentActivities.map((a) => [a.id, a]));
+        // Every activity of THIS project. Archived rows are included so an
+        // archived baseline activity is still joined (and reported as
+        // archived) instead of silently disappearing; activities from other
+        // projects can never satisfy a join.
+        const allActivities = await tx
+          .select()
+          .from(ganttActivities)
+          .where(eq(ganttActivities.projectId, accessCtx.projectId));
+        const currentById = new Map(allActivities.map((a) => [a.id, a]));
 
-      const comparisons = snapshots.map((snapshot) => {
-        const current = currentById.get(snapshot.activityId);
-        const currentStart = current ? toIsoDateString(current.earlyStart) : null;
-        const currentFinish = current ? toIsoDateString(current.earlyFinish) : null;
-        const baselineStart = toIsoDateString(snapshot.scheduledStart);
-        const baselineFinish = toIsoDateString(snapshot.scheduledFinish);
+        const wbsNodes = await tx
+          .select()
+          .from(ganttWbsNodes)
+          .where(eq(ganttWbsNodes.projectId, accessCtx.projectId));
+        const wbsById = new Map(wbsNodes.map((n) => [n.id, n]));
+
+        // One calendar object per calendarId: the engine caches calendars by
+        // object identity, so reusing the same instance is both correct and
+        // cheap.
+        const calendarCache = new Map<number, ScheduleCalendarInput>();
+        const calendarFor = async (calendarId: number | null | undefined) => {
+          const key = calendarId ?? projectRow.defaultCalendarId ?? 0;
+          const cached = calendarCache.get(key);
+          if (cached) return cached;
+          const cal = await resolveActivityCalendar(
+            tx,
+            accessCtx.projectId,
+            calendarId,
+            projectRow.defaultCalendarId
+          );
+          calendarCache.set(key, cal);
+          return cal;
+        };
+
+        // `comparisons` is exactly one row per approved baseline activity, in
+        // baseline order — the shipped contract for this field.
+        const comparisons: BaselineComparisonRow[] = [];
+        for (const snapshot of snapshots) {
+          const currentRow = currentById.get(snapshot.activityId);
+          comparisons.push(
+            compareActivityToBaseline({
+              snapshot: toVarianceSnapshotInput(snapshot),
+              current: currentRow ? toVarianceCurrentInput(currentRow, wbsById.get(currentRow.wbsNodeId)) : null,
+              calendar: await calendarFor(snapshot.calendarId),
+            })
+          );
+        }
+
+        // Work added AFTER the baseline. Reported separately so it can never be
+        // mistaken for a baseline row, and never given invented baseline dates.
+        const baselineActivityIds = new Set(snapshots.map((s) => s.activityId));
+        const currentActivities = allActivities.filter((a) => a.archivedAt == null);
+        const newSinceBaseline: BaselineComparisonRow[] = [];
+        for (const activity of currentActivities) {
+          if (baselineActivityIds.has(activity.id)) continue;
+          newSinceBaseline.push(
+            compareActivityToBaseline({
+              snapshot: null,
+              current: toVarianceCurrentInput(activity, wbsById.get(activity.wbsNodeId)),
+              calendar: await calendarFor(activity.calendarId),
+            })
+          );
+        }
 
         return {
-          snapshotId: snapshot.id,
-          activityId: snapshot.activityId,
-          activityCode: snapshot.activityCode,
-          activityName: snapshot.activityName,
-          wbsNodeId: snapshot.wbsNodeId,
-          wbsCode: snapshot.wbsCode,
-          wbsName: snapshot.wbsName,
-          calendarId: snapshot.calendarId,
-          calendarName: snapshot.calendarName,
-          originalDurationDays: snapshot.originalDurationDays,
-          baselineScheduledStart: baselineStart,
-          baselineScheduledFinish: baselineFinish,
-          currentScheduledStart: currentStart,
-          currentScheduledFinish: currentFinish,
-          startVariance: calendarDayVariance(currentStart, baselineStart),
-          finishVariance: calendarDayVariance(currentFinish, baselineFinish),
-          currentArchivedAt: current?.archivedAt ?? null,
-          currentMissing: current === undefined,
+          comparisons,
+          newSinceBaseline,
+          project: buildProjectComparison({
+            rows: [...comparisons, ...newSinceBaseline],
+            baselineActivityCount: baseline.activityCount,
+            // Project finish keeps exactly one definition in the application:
+            // the statusing roll-up that StatusingPanel already displays.
+            currentProjectFinish: summarizeStatusing(currentActivities, projectRow.dataDate)
+              .projectFinish,
+          }),
         };
       });
 
       return {
         baseline: mapBaselineRow(baseline),
-        comparisons,
+        comparisons: comparison.comparisons,
+        newSinceBaseline: comparison.newSinceBaseline,
+        project: comparison.project,
       };
     }),
 });
