@@ -190,11 +190,20 @@ function isCompleted(activity: CurrentActivityInput): boolean {
  *   from the engine itself (`getWorkingDuration`) so the baseline comparison can
  *   never disagree with Run Schedule. This also makes a zero-duration activity
  *   and a milestone report `0` instead of the `1` that a same-day date span
- *   would otherwise suggest.
+ *   would otherwise suggest. Unfinished durations are calendar-independent:
+ *   they are the duration the engine was given, not a date span.
  * - Completed work: the engine treats a completed activity as having no
  *   remaining work (duration `0`), which is NOT its duration. The observable
  *   span between its forecast dates (which are its actual dates) is reported
  *   instead, so a 5-day activity that actually ran 7 days shows 7.
+ *
+ * The `calendar` argument is the CURRENT activity's own calendar — the same
+ * one the engine selects for that activity (`act.calendarId` when it resolves,
+ * else the project default). It must NOT be the calendar the baseline was
+ * approved under: if an activity moves to a different working week after the
+ * baseline, its reported duration would otherwise change even though nothing
+ * about the work changed. It is used only for the completed-work span; the
+ * approved dates and duration are frozen facts and never consult it.
  *
  * Returns `null` when the schedule has not produced both dates.
  */

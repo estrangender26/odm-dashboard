@@ -8,15 +8,15 @@ import {
   ganttProjectEvents,
   ganttBaselines,
   ganttBaselineActivities,
+  ganttCalendars,
 } from "@db/schema";
 import { appRouter } from "./router";
+import { assertDisposableTestDatabase, resolveDisposableTestDatabaseUrl } from "./disposable-test-db";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../db/schema";
 
-const DATABASE_URL =
-  process.env.DATABASE_URL_TEST ||
-  "postgresql://postgres:postgres@localhost:5433/primavera_test?sslmode=disable";
+const DATABASE_URL = resolveDisposableTestDatabaseUrl();
 
 const client = postgres(DATABASE_URL, { ssl: false, prepare: false, max: 5 });
 const testDb = drizzle(client, { schema });
@@ -34,16 +34,6 @@ function extractToken(link: string): string {
 const createdProjectIds: number[] = [];
 const createdBaselineIds: number[] = [];
 
-function assertDisposableTestDatabase() {
-  if (process.env.PRIMAVERA_PR1_TEST_DB !== "1") {
-    throw new Error("PRIMAVERA_PR1_TEST_DB=1 is required to run these tests");
-  }
-  const url = new URL(DATABASE_URL);
-  const dbName = url.pathname.replace(/^\//, "");
-  if (!/^(primavera_test|odmtest)/.test(dbName)) {
-    throw new Error(`Refusing to run tests against non-disposable database: ${dbName}`);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Helpers — every one of them uses the PUBLIC router API unless a test
@@ -79,7 +69,13 @@ async function revision(project: Project): Promise<number> {
 
 async function addActivity(
   project: Project,
-  activity: { activityName: string; originalDurationDays: number; plannedStart?: string; plannedFinish?: string }
+  activity: {
+    activityName: string;
+    originalDurationDays: number;
+    plannedStart?: string;
+    plannedFinish?: string;
+    calendarId?: number;
+  }
 ): Promise<number> {
   const created = await caller.primaveraLite.createActivity({
     slug: project.slug,
@@ -631,5 +627,88 @@ describe("primaveraLite baseline variance foundation", () => {
 
     // The project revision advanced exactly once for the whole race.
     expect(await revision(project)).toBe(rev + 1);
+  });
+
+  it("measures a completed activity's duration on its OWN calendar, not the calendar it was approved under", async () => {
+    const project = await makeProject("Variance Calendar Authority");
+    // The baseline is approved under the project default (Mon-Fri) calendar.
+    const [defaultCalendar] = await testDb
+      .select({ id: ganttCalendars.id })
+      .from(ganttCalendars)
+      .where(eq(ganttCalendars.projectId, project.id));
+    const sixDayWeek = await caller.primaveraLite.createCalendar({
+      slug: project.slug,
+      access: project.editor,
+      expectedRevision: await revision(project),
+      calendar: { name: "Six-day week", workingDays: [1, 2, 3, 4, 5, 6] },
+    });
+
+    const activityId = await addActivity(project, {
+      activityName: "Task A",
+      originalDurationDays: 6,
+      calendarId: defaultCalendar.id,
+    });
+    await runSchedule(project);
+    const baselineId = await capture(project, "Approved Rev A");
+
+    const frozen = await snapshotsOf(baselineId);
+    expect(frozen[0].calendarId).toBe(defaultCalendar.id);
+    expect(frozen[0].originalDurationDays).toBe(6);
+
+    // The SAME work is now recorded completed across a Saturday and the activity
+    // is moved to the six-day week. Nothing about the work changed.
+    await caller.primaveraLite.updateActivity({
+      slug: project.slug,
+      access: project.editor,
+      expectedRevision: await revision(project),
+      activityId,
+      changes: {
+        percentComplete: 100,
+        actualStart: "2026-09-10",
+        actualFinish: "2026-09-16",
+        calendarId: sixDayWeek.calendar.id,
+      },
+    });
+    await runSchedule(project);
+
+    const result = await compare(project, baselineId);
+    const row = result.comparisons[0];
+
+    // The actual span 2026-09-10..2026-09-16 is 6 working days on the activity's
+    // own six-day calendar and only 5 on the approved Mon-Fri calendar. Measuring
+    // it against the approved calendar used to report a 1-day SHRINK (-1) for an
+    // unchanged duration; the duration must follow the activity's own calendar,
+    // exactly as the scheduling engine selects it.
+    expect(row.baselineDurationDays).toBe(6);
+    expect(row.currentDurationDays).toBe(6);
+    expect(row.durationVariance).toBe(0);
+
+    // Unfinished work stays calendar-independent: its duration is the duration the
+    // engine places, so moving an unfinished activity between calendars is not
+    // variance either.
+    const openId = await addActivity(project, {
+      activityName: "Task B open",
+      originalDurationDays: 4,
+      calendarId: defaultCalendar.id,
+    });
+    await runSchedule(project);
+    await capture(project, "Second");
+    await caller.primaveraLite.updateActivity({
+      slug: project.slug,
+      access: project.editor,
+      expectedRevision: await revision(project),
+      activityId: openId,
+      changes: { calendarId: sixDayWeek.calendar.id },
+    });
+    await runSchedule(project);
+    const secondBaselineId = (
+      await caller.primaveraLite.listBaselines({ slug: project.slug, access: project.admin })
+    ).baselines.slice(-1)[0].id;
+    const afterMove = await compare(project, secondBaselineId);
+    const openRow = afterMove.comparisons.find((r: any) => r.activityId === openId);
+    expect(openRow).toBeDefined();
+    expect(openRow!.baselineDurationDays).toBe(4);
+    expect(openRow!.currentDurationDays).toBe(4);
+    expect(openRow!.durationVariance).toBe(0);
   });
 });

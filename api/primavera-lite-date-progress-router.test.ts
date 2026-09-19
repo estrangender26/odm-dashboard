@@ -12,6 +12,7 @@ import {
   ganttWbsNodes,
 } from "@db/schema";
 import { appRouter } from "./router";
+import { assertDisposableTestDatabase, resolveDisposableTestDatabaseUrl } from "./disposable-test-db";
 import { activityTimelineModel } from "@/modules/gantt/primavera-lite/timelineModel";
 import { format } from "date-fns";
 import {
@@ -24,8 +25,7 @@ import {
 } from "@/modules/gantt/primavera-lite/pr345SmokeFixture";
 import { PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE } from "@/modules/gantt/primavera-lite/activityGridModel";
 
-const DATABASE_URL =
-  process.env.DATABASE_URL_TEST || "postgresql://postgres:postgres@localhost:5433/odmtest_pr6?sslmode=disable";
+const DATABASE_URL = resolveDisposableTestDatabaseUrl();
 const client = postgres(DATABASE_URL, { ssl: false, prepare: false, max: 5 });
 const testDb = drizzle(client, { schema });
 const caller = appRouter.createCaller({
@@ -36,12 +36,6 @@ const caller = appRouter.createCaller({
 const projectIds: number[] = [];
 const token = (link: string) => new URL(`http://localhost${link}`).searchParams.get("access")!;
 
-function assertDisposableDatabase() {
-  if (process.env.PRIMAVERA_PR1_TEST_DB !== "1") throw new Error("PRIMAVERA_PR1_TEST_DB=1 is required");
-  if (!/^\/(primavera_test|odmtest)/.test(new URL(DATABASE_URL).pathname)) {
-    throw new Error("Refusing non-disposable database");
-  }
-}
 
 async function createProject(name: string) {
   const created = await caller.primaveraLite.createProject({ name });
@@ -65,7 +59,7 @@ async function createActivity(access: string, slug: string, revision: number, ac
 }
 
 describe("Primavera Lite PR7 Date & Progress Editing", () => {
-  beforeAll(assertDisposableDatabase);
+  beforeAll(() => assertDisposableTestDatabase());
   afterAll(async () => {
     if (projectIds.length) {
       await testDb

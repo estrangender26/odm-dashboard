@@ -161,6 +161,44 @@ describe("currentDurationDays — working-day duration authority", () => {
     ).toBe(7);
   });
 
+  it("counts a completed span against the supplied calendar, excluding its non-working exception day", () => {
+    // Mon-Fri calendar with Mon 2026-02-23 marked as a non-working holiday.
+    const withHoliday: ScheduleCalendarInput = {
+      ...CAL,
+      exceptions: [{ exceptionDate: "2026-02-23", isWorking: false }],
+    };
+    // Actual span Mon 2026-02-16 .. Fri 2026-02-27 = 10 working days normally,
+    // 9 once the holiday is excluded. This is the calendar the CALLER supplies,
+    // which for current-duration must be the activity's own calendar.
+    expect(
+      currentDurationDays(
+        current({
+          percentComplete: 100,
+          originalDurationDays: 10,
+          actualStart: "2026-02-16",
+          actualFinish: "2026-02-27",
+          earlyStart: "2026-02-16",
+          earlyFinish: "2026-02-27",
+        }),
+        withHoliday
+      )
+    ).toBe(9);
+    // The same dates on a calendar without the holiday still count 10.
+    expect(
+      currentDurationDays(
+        current({
+          percentComplete: 100,
+          originalDurationDays: 10,
+          actualStart: "2026-02-16",
+          actualFinish: "2026-02-27",
+          earlyStart: "2026-02-16",
+          earlyFinish: "2026-02-27",
+        }),
+        CAL
+      )
+    ).toBe(10);
+  });
+
   it("is null when the current schedule has no dates for the activity", () => {
     expect(currentDurationDays(current({ earlyStart: null, earlyFinish: null }), CAL)).toBeNull();
     expect(currentDurationDays(current({ earlyStart: "2026-02-16", earlyFinish: null }), CAL)).toBeNull();

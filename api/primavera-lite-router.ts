@@ -3732,7 +3732,14 @@ export const primaveraLiteRouter = createRouter({
             compareActivityToBaseline({
               snapshot: toVarianceSnapshotInput(snapshot),
               current: currentRow ? toVarianceCurrentInput(currentRow, wbsById.get(currentRow.wbsNodeId)) : null,
-              calendar: await calendarFor(snapshot.calendarId),
+              // The duration the CURRENT schedule carries is measured on the
+              // activity's OWN calendar, exactly as the engine selects one
+              // (schedulingEngine: `act.calendarId` when it resolves, else the
+              // project default) — never on whichever calendar the baseline
+              // happened to be approved under. The snapshot's calendar stays on
+              // the row for display only. Note this calendar affects ONLY the
+              // current duration; the approved dates and duration are frozen.
+              calendar: await calendarFor(currentRow ? currentRow.calendarId : snapshot.calendarId),
             })
           );
         }
