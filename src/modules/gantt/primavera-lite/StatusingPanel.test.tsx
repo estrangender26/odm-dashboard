@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import StatusingPanel from "./StatusingPanel";
-import type { StatusingActivityInput } from "./statusingModel";
+import type { StatusingActivityInput } from "@lihok/project-controls";
 
 afterEach(() => cleanup());
 

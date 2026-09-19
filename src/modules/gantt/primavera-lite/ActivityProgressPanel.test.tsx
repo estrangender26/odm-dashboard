@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ActivityProgressPanel from "./ActivityProgressPanel";
-import { PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE } from "./progressModel";
+import { PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE } from "@lihok/project-controls";
 import type { ActivityGridRow } from "./activityGridModel";
 
 afterEach(() => cleanup());

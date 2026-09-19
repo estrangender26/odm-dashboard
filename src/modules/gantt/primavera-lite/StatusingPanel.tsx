@@ -4,7 +4,7 @@ import {
   LIFECYCLE_LABELS,
   summarizeStatusing,
   type StatusingActivityInput,
-} from "./statusingModel";
+} from "@lihok/project-controls";
 
 type Props = {
   activities: StatusingActivityInput[];

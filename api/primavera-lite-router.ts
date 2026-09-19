@@ -31,25 +31,25 @@ import {
   dateToCalendarDay,
   calendarDayToDate,
   type ScheduleCalendarInput,
-} from "@/modules/gantt/primavera-lite/schedulingEngine";
-import { isScheduleOutOfDate } from "@/modules/gantt/primavera-lite/scheduleStaleness";
+} from "@lihok/project-controls";
+import { isScheduleOutOfDate } from "@lihok/project-controls";
 import {
   buildProjectComparison,
   compareActivityToBaseline,
   type BaselineComparisonRow,
   type BaselineSnapshotInput,
   type CurrentActivityInput,
-} from "@/modules/gantt/primavera-lite/baselineVariance";
-import { summarizeStatusing } from "@/modules/gantt/primavera-lite/statusingModel";
+} from "@lihok/project-controls";
+import { summarizeStatusing } from "@lihok/project-controls";
 import {
   calendarAffectsActiveSchedule,
   validateWorkingDays,
   workingDaysEqual,
-} from "@/modules/gantt/primavera-lite/calendarModel";
+} from "@lihok/project-controls";
 import {
   resolveProgress,
   type ProgressFields,
-} from "@/modules/gantt/primavera-lite/progressModel";
+} from "@lihok/project-controls";
 
 const MAX_NAME_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
