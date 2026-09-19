@@ -1,0 +1,1066 @@
+{
+  "scheduling": [
+    {
+      "id": 1,
+      "es": "2026-09-10",
+      "ef": "2026-09-16",
+      "ls": "2026-09-10",
+      "lf": "2026-09-16",
+      "tf": 0,
+      "ff": 0,
+      "crit": true
+    },
+    {
+      "id": 2,
+      "es": "2026-09-17",
+      "ef": "2026-09-22",
+      "ls": "2026-09-21",
+      "lf": "2026-09-24",
+      "tf": 2,
+      "ff": 0,
+      "crit": false
+    },
+    {
+      "id": 3,
+      "es": "2026-09-17",
+      "ef": "2026-09-25",
+      "ls": "2026-09-17",
+      "lf": "2026-09-25",
+      "tf": 0,
+      "ff": 0,
+      "crit": true
+    },
+    {
+      "id": 4,
+      "es": "2026-09-26",
+      "ef": "2026-09-29",
+      "ls": "2026-09-29",
+      "lf": "2026-10-01",
+      "tf": 2,
+      "ff": 1,
+      "crit": false
+    },
+    {
+      "id": 5,
+      "es": "2026-09-18",
+      "ef": "2026-09-18",
+      "ls": "2026-10-01",
+      "lf": "2026-10-01",
+      "tf": 9,
+      "ff": 9,
+      "crit": false
+    },
+    {
+      "id": 6,
+      "es": "2026-09-30",
+      "ef": "2026-09-30",
+      "ls": "2026-09-30",
+      "lf": "2026-09-30",
+      "tf": 0,
+      "ff": 0,
+      "crit": true
+    },
+    {
+      "id": 7,
+      "es": "2026-09-10",
+      "ef": "2026-09-15",
+      "ls": "2026-09-10",
+      "lf": "2026-09-15",
+      "tf": 0,
+      "ff": 0,
+      "crit": true
+    },
+    {
+      "id": 8,
+      "es": "2026-09-24",
+      "ef": "2026-09-29",
+      "ls": "2026-09-25",
+      "lf": "2026-09-30",
+      "tf": 1,
+      "ff": 1,
+      "crit": false
+    },
+    {
+      "id": 9,
+      "es": "2026-10-01",
+      "ef": "2026-10-02",
+      "ls": "2026-10-01",
+      "lf": "2026-10-02",
+      "tf": 0,
+      "ff": 0,
+      "crit": true
+    },
+    {
+      "id": 10,
+      "es": "2026-09-10",
+      "ef": "2026-09-14",
+      "ls": "2026-09-30",
+      "lf": "2026-10-02",
+      "tf": 14,
+      "ff": 14,
+      "crit": false
+    }
+  ],
+  "calendars": {
+    "calendarDay": [
+      9747,
+      9751,
+      -10959
+    ],
+    "addWorking": [
+      "2026-09-10",
+      "2026-09-16",
+      "2026-09-15",
+      "2026-09-17",
+      "2026-09-10"
+    ],
+    "subWorking": [
+      "2026-09-10"
+    ],
+    "countWorking": [
+      5,
+      6,
+      4,
+      0,
+      0
+    ],
+    "isWorking": [
+      false,
+      true,
+      false
+    ],
+    "workingDaysHelpers": {
+      "normalized7": [
+        0,
+        1,
+        2
+      ],
+      "formatted": "Mon, Tue, Wed, Thu, Fri",
+      "formattedWithSaturday": "Sat, Sun",
+      "equal": false,
+      "unequal": false,
+      "affectsActive": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "validated": [
+        0,
+        1,
+        3
+      ]
+    }
+  },
+  "durations": [
+    {
+      "id": 1,
+      "name": "A start",
+      "engineDuration": 5,
+      "currentDurationMonFri": 5,
+      "currentDurationSixDay": 5
+    },
+    {
+      "id": 2,
+      "name": "B left",
+      "engineDuration": 4,
+      "currentDurationMonFri": 4,
+      "currentDurationSixDay": 4
+    },
+    {
+      "id": 3,
+      "name": "C right",
+      "engineDuration": 7,
+      "currentDurationMonFri": 7,
+      "currentDurationSixDay": 7
+    },
+    {
+      "id": 4,
+      "name": "D diamond join",
+      "engineDuration": 3,
+      "currentDurationMonFri": 3,
+      "currentDurationSixDay": 3
+    },
+    {
+      "id": 5,
+      "name": "E zero duration",
+      "engineDuration": 0,
+      "currentDurationMonFri": 0,
+      "currentDurationSixDay": 0
+    },
+    {
+      "id": 6,
+      "name": "F milestone",
+      "engineDuration": 0,
+      "currentDurationMonFri": 0,
+      "currentDurationSixDay": 0
+    },
+    {
+      "id": 7,
+      "name": "G completed",
+      "engineDuration": 0,
+      "currentDurationMonFri": 4,
+      "currentDurationSixDay": 5
+    },
+    {
+      "id": 8,
+      "name": "H in progress",
+      "engineDuration": 4,
+      "currentDurationMonFri": 4,
+      "currentDurationSixDay": 4
+    },
+    {
+      "id": 9,
+      "name": "I successor of many",
+      "engineDuration": 2,
+      "currentDurationMonFri": 2,
+      "currentDurationSixDay": 2
+    },
+    {
+      "id": 10,
+      "name": "J legacy row",
+      "engineDuration": 3,
+      "currentDurationMonFri": 3,
+      "currentDurationSixDay": 3
+    }
+  ],
+  "progress": [
+    {
+      "name": "unchanged-noop",
+      "ok": true,
+      "error": null,
+      "noop": true,
+      "values": {}
+    },
+    {
+      "name": "explicit-zero-percent",
+      "ok": true,
+      "error": null,
+      "noop": true,
+      "values": {}
+    },
+    {
+      "name": "forty-percent",
+      "ok": true,
+      "error": null,
+      "noop": false,
+      "values": {
+        "percentComplete": 40,
+        "status": "in-progress",
+        "remainingDurationDays": 6
+      }
+    },
+    {
+      "name": "hundred-derives-finish",
+      "ok": true,
+      "error": null,
+      "noop": false,
+      "values": {
+        "percentComplete": 100,
+        "actualFinish": "2026-09-10",
+        "status": "completed"
+      }
+    },
+    {
+      "name": "hundred-with-start",
+      "ok": true,
+      "error": null,
+      "noop": false,
+      "values": {
+        "percentComplete": 100,
+        "actualFinish": "2026-09-10",
+        "status": "completed"
+      }
+    },
+    {
+      "name": "in-progress-explicit-zero-remaining-V10",
+      "ok": false,
+      "error": "An in-progress activity must have at least 1 day of remaining duration; set percent complete to 100 to complete it, or leave Remaining Duration blank to derive it",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "in-progress-positive-remaining",
+      "ok": true,
+      "error": null,
+      "noop": false,
+      "values": {
+        "remainingDurationDays": 3
+      }
+    },
+    {
+      "name": "completed-with-positive-remaining-V4",
+      "ok": false,
+      "error": "Completed activities cannot have a positive remaining duration",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "clear-finish-T2b",
+      "ok": true,
+      "error": null,
+      "noop": false,
+      "values": {
+        "percentComplete": 99,
+        "actualFinish": null,
+        "status": "in-progress",
+        "remainingDurationDays": 1
+      }
+    },
+    {
+      "name": "uncomplete-T2",
+      "ok": true,
+      "error": null,
+      "noop": false,
+      "values": {
+        "percentComplete": 60,
+        "actualFinish": null,
+        "status": "in-progress",
+        "remainingDurationDays": 4
+      }
+    },
+    {
+      "name": "percent-with-finish-error",
+      "ok": false,
+      "error": "Actual Finish requires 100% complete; set percentComplete to 100 or clear Actual Finish",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "reversed-actuals-error",
+      "ok": false,
+      "error": "Actual start must be on or before actual finish",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "unknown-status-V5",
+      "ok": false,
+      "error": "Unknown activity status \"in_progress\"; use not-started, in-progress, or completed",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "status-mismatch-V9",
+      "ok": false,
+      "error": "Completed status requires 100% complete",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "not-started-with-dates-error",
+      "ok": false,
+      "error": "Not-started status cannot have progress or actual dates",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "out-of-range-percent",
+      "ok": false,
+      "error": "Percent complete must be a whole number from 0 to 100",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "negative-remaining",
+      "ok": false,
+      "error": "Remaining duration cannot be negative",
+      "noop": null,
+      "values": null
+    },
+    {
+      "name": "create-mode-finish-only",
+      "ok": true,
+      "error": null,
+      "noop": false,
+      "values": {
+        "percentComplete": 100,
+        "actualFinish": "2026-09-15",
+        "status": "completed"
+      }
+    }
+  ],
+  "derived": {
+    "states": [
+      "not-started",
+      "in-progress",
+      "completed",
+      "completed"
+    ],
+    "remaining": [
+      0,
+      6,
+      0,
+      3,
+      0
+    ],
+    "autoFinish": [
+      {
+        "ok": true,
+        "actualFinish": "2026-09-10"
+      },
+      {
+        "ok": true,
+        "actualFinish": "2026-09-10"
+      },
+      {
+        "ok": false,
+        "error": "Project Data Date is required to automatically set Actual Finish when completing an activity at 100%"
+      },
+      {
+        "ok": false,
+        "error": "Cannot auto-populate Actual Finish from Project Data Date (2026-09-10) because it precedes Actual Start (2026-09-20); provide an explicit Actual Finish on or after 2026-09-20 or update the Project Data Date"
+      }
+    ],
+    "clearedPercent": [
+      99,
+      0,
+      60
+    ],
+    "normalized": [
+      "2026-09-10",
+      "2026-09-10",
+      null,
+      null,
+      null,
+      "2026-09-10"
+    ]
+  },
+  "statusing": {
+    "summary": {
+      "dataDate": "2026-09-10",
+      "dataDateIsSet": true,
+      "total": 10,
+      "notStarted": 8,
+      "inProgress": 1,
+      "completed": 1,
+      "actualStarted": 2,
+      "actualFinished": 1,
+      "latestActualStart": "2026-09-10",
+      "latestActualFinish": "2026-09-15",
+      "totalRemainingDays": 28,
+      "forecastFinish": "2026-10-02",
+      "projectFinish": "2026-10-02",
+      "scheduleCalculated": true,
+      "warnings": [
+        {
+          "code": "actuals-after-data-date",
+          "message": "1 activity has an actual date after the Data Date (2026-09-10).",
+          "activityIds": [
+            7
+          ]
+        }
+      ]
+    },
+    "lifecycles": [
+      {
+        "id": 1,
+        "lifecycle": "not-started",
+        "forecastRemaining": 5
+      },
+      {
+        "id": 2,
+        "lifecycle": "not-started",
+        "forecastRemaining": 4
+      },
+      {
+        "id": 3,
+        "lifecycle": "not-started",
+        "forecastRemaining": 7
+      },
+      {
+        "id": 4,
+        "lifecycle": "not-started",
+        "forecastRemaining": 3
+      },
+      {
+        "id": 5,
+        "lifecycle": "not-started",
+        "forecastRemaining": 0
+      },
+      {
+        "id": 6,
+        "lifecycle": "not-started",
+        "forecastRemaining": 0
+      },
+      {
+        "id": 7,
+        "lifecycle": "completed",
+        "forecastRemaining": 0
+      },
+      {
+        "id": 8,
+        "lifecycle": "in-progress",
+        "forecastRemaining": 4
+      },
+      {
+        "id": 9,
+        "lifecycle": "not-started",
+        "forecastRemaining": 2
+      },
+      {
+        "id": 10,
+        "lifecycle": "not-started",
+        "forecastRemaining": 3
+      }
+    ]
+  },
+  "variance": {
+    "rows": [
+      {
+        "name": "unchanged",
+        "snapshotId": 1010,
+        "activityId": 101,
+        "activityCode": "A-101",
+        "activityName": "Approved 101",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-16",
+        "currentDurationDays": 5,
+        "startVariance": 0,
+        "finishVariance": 0,
+        "durationVariance": 0,
+        "status": "on-baseline",
+        "statusLabel": "On baseline",
+        "statusSymbol": "=",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "ahead",
+        "snapshotId": 1020,
+        "activityId": 102,
+        "activityCode": "A-102",
+        "activityName": "Approved 102",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-14",
+        "currentDurationDays": 5,
+        "startVariance": 0,
+        "finishVariance": -2,
+        "durationVariance": 0,
+        "status": "ahead",
+        "statusLabel": "Ahead of baseline",
+        "statusSymbol": "▼",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "late",
+        "snapshotId": 1030,
+        "activityId": 103,
+        "activityCode": "A-103",
+        "activityName": "Approved 103",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-21",
+        "currentDurationDays": 5,
+        "startVariance": 0,
+        "finishVariance": 5,
+        "durationVariance": 0,
+        "status": "late",
+        "statusLabel": "Behind baseline",
+        "statusSymbol": "▲",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "duration-longer",
+        "snapshotId": 1040,
+        "activityId": 104,
+        "activityCode": "A-104",
+        "activityName": "Approved 104",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-16",
+        "currentDurationDays": 9,
+        "startVariance": 0,
+        "finishVariance": 0,
+        "durationVariance": 4,
+        "status": "on-baseline",
+        "statusLabel": "On baseline",
+        "statusSymbol": "=",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "duration-shorter",
+        "snapshotId": 1050,
+        "activityId": 105,
+        "activityCode": "A-105",
+        "activityName": "Approved 105",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-16",
+        "currentDurationDays": 2,
+        "startVariance": 0,
+        "finishVariance": 0,
+        "durationVariance": -3,
+        "status": "on-baseline",
+        "statusLabel": "On baseline",
+        "statusSymbol": "=",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "completed-calendar-change",
+        "snapshotId": 1060,
+        "activityId": 106,
+        "activityCode": "A-106",
+        "activityName": "Approved 106",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-16",
+        "currentDurationDays": 6,
+        "startVariance": 0,
+        "finishVariance": 0,
+        "durationVariance": 1,
+        "status": "on-baseline",
+        "statusLabel": "On baseline",
+        "statusSymbol": "=",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "completed-calendar-exception",
+        "snapshotId": 1070,
+        "activityId": 107,
+        "activityCode": "A-107",
+        "activityName": "Approved 107",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-16",
+        "currentDurationDays": 4,
+        "startVariance": 0,
+        "finishVariance": 0,
+        "durationVariance": -1,
+        "status": "on-baseline",
+        "statusLabel": "On baseline",
+        "statusSymbol": "=",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "unfinished-calendar-change",
+        "snapshotId": 1080,
+        "activityId": 108,
+        "activityCode": "A-108",
+        "activityName": "Approved 108",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-16",
+        "currentDurationDays": 5,
+        "startVariance": 0,
+        "finishVariance": 0,
+        "durationVariance": 0,
+        "status": "on-baseline",
+        "statusLabel": "On baseline",
+        "statusSymbol": "=",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "new-since-baseline",
+        "snapshotId": null,
+        "activityId": 109,
+        "activityCode": null,
+        "activityName": "",
+        "wbsNodeId": null,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": null,
+        "calendarName": null,
+        "baselineDurationDays": null,
+        "originalDurationDays": null,
+        "baselineScheduledStart": null,
+        "baselineScheduledFinish": null,
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-16",
+        "currentDurationDays": 5,
+        "startVariance": null,
+        "finishVariance": null,
+        "durationVariance": null,
+        "status": "new-since-baseline",
+        "statusLabel": "New since baseline",
+        "statusSymbol": "+",
+        "hasBaseline": false,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "removed-since-baseline",
+        "snapshotId": 1100,
+        "activityId": 110,
+        "activityCode": "A-110",
+        "activityName": "Approved 110",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": null,
+        "currentScheduledFinish": null,
+        "currentDurationDays": null,
+        "startVariance": null,
+        "finishVariance": null,
+        "durationVariance": null,
+        "status": "removed",
+        "statusLabel": "Removed since baseline",
+        "statusSymbol": "×",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": true
+      },
+      {
+        "name": "archived-since-baseline",
+        "snapshotId": 1110,
+        "activityId": 111,
+        "activityCode": "A-111",
+        "activityName": "Approved 111",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-16",
+        "currentScheduledStart": null,
+        "currentScheduledFinish": null,
+        "currentDurationDays": null,
+        "startVariance": null,
+        "finishVariance": null,
+        "durationVariance": null,
+        "status": "removed",
+        "statusLabel": "Removed since baseline",
+        "statusSymbol": "×",
+        "hasBaseline": true,
+        "currentArchivedAt": "2026-09-20T00:00:00.000Z",
+        "currentMissing": false
+      },
+      {
+        "name": "undated-baseline",
+        "snapshotId": 1120,
+        "activityId": 112,
+        "activityCode": "A-112",
+        "activityName": "Approved 112",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 5,
+        "originalDurationDays": 5,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": null,
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-16",
+        "currentDurationDays": 5,
+        "startVariance": 0,
+        "finishVariance": null,
+        "durationVariance": 0,
+        "status": "undated",
+        "statusLabel": "No comparable dates",
+        "statusSymbol": "–",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      },
+      {
+        "name": "milestone",
+        "snapshotId": 1130,
+        "activityId": 113,
+        "activityCode": "A-113",
+        "activityName": "Approved 113",
+        "wbsNodeId": 1,
+        "wbsCode": null,
+        "wbsName": null,
+        "calendarId": 1,
+        "calendarName": "Project default",
+        "baselineDurationDays": 0,
+        "originalDurationDays": 0,
+        "baselineScheduledStart": "2026-09-10",
+        "baselineScheduledFinish": "2026-09-10",
+        "currentScheduledStart": "2026-09-10",
+        "currentScheduledFinish": "2026-09-10",
+        "currentDurationDays": 0,
+        "startVariance": 0,
+        "finishVariance": 0,
+        "durationVariance": 0,
+        "status": "on-baseline",
+        "statusLabel": "On baseline",
+        "statusSymbol": "=",
+        "hasBaseline": true,
+        "currentArchivedAt": null,
+        "currentMissing": false
+      }
+    ],
+    "project": {
+      "baselineStart": "2026-09-10",
+      "baselineFinish": "2026-09-16",
+      "currentStart": "2026-09-10",
+      "currentFinish": "2026-09-21",
+      "startVariance": 0,
+      "finishVariance": 5,
+      "baselineActivityCount": 12,
+      "newSinceBaselineCount": 1,
+      "removedSinceBaselineCount": 2,
+      "statusCounts": {
+        "ahead": 1,
+        "on-baseline": 7,
+        "late": 1,
+        "undated": 1,
+        "removed": 2,
+        "new-since-baseline": 1
+      }
+    },
+    "projectEarlier": {
+      "baselineStart": "2026-09-10",
+      "baselineFinish": "2026-09-16",
+      "currentStart": "2026-09-10",
+      "currentFinish": "2026-09-11",
+      "startVariance": 0,
+      "finishVariance": -5,
+      "baselineActivityCount": 12,
+      "newSinceBaselineCount": 1,
+      "removedSinceBaselineCount": 2,
+      "statusCounts": {
+        "ahead": 1,
+        "on-baseline": 7,
+        "late": 1,
+        "undated": 1,
+        "removed": 2,
+        "new-since-baseline": 1
+      }
+    },
+    "projectUndated": {
+      "baselineStart": "2026-09-10",
+      "baselineFinish": "2026-09-16",
+      "currentStart": "2026-09-10",
+      "currentFinish": null,
+      "startVariance": 0,
+      "finishVariance": null,
+      "baselineActivityCount": 12,
+      "newSinceBaselineCount": 1,
+      "removedSinceBaselineCount": 2,
+      "statusCounts": {
+        "ahead": 1,
+        "on-baseline": 7,
+        "late": 1,
+        "undated": 1,
+        "removed": 2,
+        "new-since-baseline": 1
+      }
+    }
+  },
+  "staleness": {
+    "driving": [
+      {
+        "entityType": "activity",
+        "action": "update",
+        "beforeData": {
+          "originalDurationDays": 3
+        },
+        "afterData": {
+          "originalDurationDays": 5
+        },
+        "projectRevision": 5,
+        "drives": true
+      },
+      {
+        "entityType": "activity",
+        "action": "update",
+        "beforeData": {
+          "plannedStart": "2026-09-01"
+        },
+        "afterData": {
+          "plannedStart": "2026-09-02"
+        },
+        "projectRevision": 5,
+        "drives": false
+      },
+      {
+        "entityType": "activity",
+        "action": "update",
+        "beforeData": {
+          "status": "not-started"
+        },
+        "afterData": {
+          "status": "in-progress"
+        },
+        "projectRevision": 5,
+        "drives": false
+      },
+      {
+        "entityType": "activity",
+        "action": "create",
+        "beforeData": null,
+        "afterData": {},
+        "projectRevision": 5,
+        "drives": true
+      },
+      {
+        "entityType": "dependency",
+        "action": "update",
+        "beforeData": {},
+        "afterData": {},
+        "projectRevision": 5,
+        "drives": true
+      },
+      {
+        "entityType": "project",
+        "action": "update",
+        "beforeData": {
+          "dataDate": "2026-09-10"
+        },
+        "afterData": {
+          "dataDate": "2026-09-11"
+        },
+        "projectRevision": 5,
+        "drives": true
+      },
+      {
+        "entityType": "project",
+        "action": "update",
+        "beforeData": {
+          "description": "a"
+        },
+        "afterData": {
+          "description": "b"
+        },
+        "projectRevision": 5,
+        "drives": false
+      },
+      {
+        "entityType": "calendar",
+        "action": "update",
+        "beforeData": {
+          "affectsActiveSchedule": true,
+          "workingDays": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "afterData": {
+          "affectsActiveSchedule": true,
+          "workingDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "projectRevision": 5,
+        "drives": true
+      },
+      {
+        "entityType": "calendarException",
+        "action": "create",
+        "beforeData": null,
+        "afterData": {
+          "affectsActiveSchedule": true,
+          "exceptionDate": "2026-09-14",
+          "isWorking": false
+        },
+        "projectRevision": 5,
+        "drives": true
+      },
+      {
+        "entityType": "baseline",
+        "action": "capture",
+        "beforeData": null,
+        "afterData": {},
+        "projectRevision": 5,
+        "drives": false
+      }
+    ],
+    "outOfDate": [
+      true,
+      false,
+      false,
+      false
+    ]
+  }
+}

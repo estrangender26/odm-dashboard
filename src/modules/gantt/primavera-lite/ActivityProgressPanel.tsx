@@ -7,13 +7,13 @@ import {
   normalizeIsoDate,
   resolveProgress,
   type ProgressFields,
-} from "./progressModel";
+} from "@lihok/project-controls";
 import {
   activityLifecycle,
   forecastRemainingDays,
   LIFECYCLE_CHIP_CLASS,
   LIFECYCLE_LABELS,
-} from "./statusingModel";
+} from "@lihok/project-controls";
 import type { ActivityGridRow } from "./activityGridModel";
 
 type ProgressChanges = Partial<ProgressFields>;

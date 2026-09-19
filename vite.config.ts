@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => ({
       "@contracts": path.resolve(__dirname, "./contracts"),
       "@db": path.resolve(__dirname, "./db"),
       "db": path.resolve(__dirname, "./db"),
+      "@lihok/project-controls/testing": path.resolve(__dirname, "./packages/project-controls/src/testing.ts"),
+      "@lihok/project-controls": path.resolve(__dirname, "./packages/project-controls/src/index.ts"),
     },
   },
   envDir: path.resolve(__dirname),

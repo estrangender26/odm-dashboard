@@ -1,7 +1,15 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  /* The internal @lihok/project-controls package ships some class names
+     (e.g. statusingModel's LIFECYCLE_CHIP_CLASS). It must therefore be scanned
+     too, otherwise moving that code out of ./src silently tree-shakes those
+     rules and the lifecycle chips lose their colours. */
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+    './packages/**/*.{js,ts,jsx,tsx}',
+  ],
   /* Tailwind only emits rules written inside `@layer components` when the class
      name appears literally in scanned source. The Programs Engineering
      primitives compose their variant class from a `tone` prop

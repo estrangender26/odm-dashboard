@@ -17,7 +17,13 @@
     "paths": {
       "@/*": ["./src/*"],
       "@contracts/*": ["./contracts/*"],
-      "@db/*": ["./db/*"]
+      "@db/*": ["./db/*"],
+      "@lihok/project-controls/testing": [
+        "./packages/project-controls/src/testing.ts"
+      ],
+      "@lihok/project-controls": [
+        "./packages/project-controls/src/index.ts"
+      ]
     }
   },
   "include": ["api", "contracts", "db"]

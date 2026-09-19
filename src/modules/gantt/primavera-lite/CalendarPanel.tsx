@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/providers/trpc";
-import { WEEKDAY_LABELS, formatWorkingDays } from "./calendarModel";
+import { WEEKDAY_LABELS, formatWorkingDays } from "@lihok/project-controls";
 
 export type CalendarException = {
   id: number;

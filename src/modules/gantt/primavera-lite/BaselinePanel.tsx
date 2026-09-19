@@ -11,7 +11,7 @@ import {
   describeBaselineState,
   selectActiveBaseline,
   type BaselineVarianceStatus,
-} from "./baselineVariance";
+} from "@lihok/project-controls";
 
 type Props = {
   slug: string;

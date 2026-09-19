@@ -57,7 +57,7 @@ export function optimisticActivityArchive<T extends Pick<ActivityGridRow, "id" |
 
 // Canonical progress/completion rules live in progressModel.ts (F-10). The grid
 // helpers below re-export them so both layers share one implementation.
-import { autoActualFinishFromDataDate, normalizeIsoDate, percentAfterClearingActualFinish } from "./progressModel";
+import { autoActualFinishFromDataDate, normalizeIsoDate, percentAfterClearingActualFinish } from "@lihok/project-controls";
 export {
   PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE,
   autoActualFinishFromDataDate,
@@ -68,8 +68,8 @@ export {
   isValidIsoDate,
   normalizeIsoDate,
   percentAfterClearingActualFinish,
-} from "./progressModel";
-export type { ProgressEdit, ProgressFields, ProgressResult, ProgressState, ProgressStatus } from "./progressModel";
+} from "@lihok/project-controls";
+export type { ProgressEdit, ProgressFields, ProgressResult, ProgressState, ProgressStatus } from "@lihok/project-controls";
 
 export function validateHundredPercentEdit(
   activity: Pick<ActivityGridRow, "actualStart" | "actualFinish">,

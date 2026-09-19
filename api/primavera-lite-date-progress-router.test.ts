@@ -22,7 +22,7 @@ import {
   PR345_AFTER_SCHEDULE,
   PR345_DATA_DATE,
   PR345_MANUAL_ACTUAL_FINISH,
-} from "@/modules/gantt/primavera-lite/pr345SmokeFixture";
+} from "@lihok/project-controls/testing";
 import { PROJECT_DATA_DATE_REQUIRED_FOR_100_MESSAGE } from "@/modules/gantt/primavera-lite/activityGridModel";
 
 const DATABASE_URL = resolveDisposableTestDatabaseUrl();

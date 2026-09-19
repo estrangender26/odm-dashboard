@@ -12,8 +12,8 @@ import {
 import ActivityProgressPanel from "./ActivityProgressPanel";
 import {
   activityLifecycle, forecastRemainingDays, LIFECYCLE_CHIP_CLASS, LIFECYCLE_LABELS,
-} from "./statusingModel";
-import type { ProgressFields } from "./progressModel";
+} from "@lihok/project-controls";
+import type { ProgressFields } from "@lihok/project-controls";
 
 type WbsNode = { id: number; code: string; name: string; isLeaf: boolean; archivedAt?: string | Date | null };
 type Calendar = { id: number; name: string };
