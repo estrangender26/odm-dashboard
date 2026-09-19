@@ -2,11 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { sql, eq, inArray, and, isNull } from "drizzle-orm";
 import { ganttProjects, ganttWbsNodes, ganttActivities, ganttProjectEvents } from "@db/schema";
 import { appRouter } from "./router";
+import { assertDisposableTestDatabase, resolveDisposableTestDatabaseUrl } from "./disposable-test-db";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../db/schema";
 
-const DATABASE_URL = process.env.DATABASE_URL_TEST || "postgresql://postgres:postgres@localhost:5433/primavera_test?sslmode=disable";
+const DATABASE_URL = resolveDisposableTestDatabaseUrl();
 
 const client = postgres(DATABASE_URL, { ssl: false, prepare: false, max: 5 });
 const testDb = drizzle(client, { schema });
@@ -23,16 +24,6 @@ function extractToken(link: string): string {
 
 const createdProjectIds: number[] = [];
 
-function assertDisposableTestDatabase() {
-  if (process.env.PRIMAVERA_PR1_TEST_DB !== "1") {
-    throw new Error("PRIMAVERA_PR1_TEST_DB=1 is required to run these tests");
-  }
-  const url = new URL(DATABASE_URL);
-  const dbName = url.pathname.replace(/^\//, "");
-  if (!/^(primavera_test|odmtest)/.test(dbName)) {
-    throw new Error(`Refusing to run tests against non-disposable database: ${dbName}`);
-  }
-}
 
 async function loadAdmin(project: { project: { slug: string }; adminLink: string }) {
   const token = extractToken(project.adminLink);

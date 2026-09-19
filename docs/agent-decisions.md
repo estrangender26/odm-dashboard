@@ -66,3 +66,29 @@ Agent rule:
 - Do not add a second progress percentage system, a second status vocabulary, or a parallel mutation path for progress.
 - Do not make recalculation rewrite actual dates, and do not let a missing Data Date be silently replaced by wall-clock today.
 - If the UI needs another statusing field, extend the focused progress panel rather than appending permanent ActivityGrid columns.
+
+## Primavera Lite — Baseline Management and Schedule Variance
+
+Decision:
+A baseline is an **immutable approved reference schedule**, stored as a snapshot pair (`gantt_baselines` + `gantt_baseline_activities`, migration 0030) that is deliberately detached from live activities and WBS nodes. Variance is always **derived** — frozen baseline versus current schedule output — by `src/modules/gantt/primavera-lite/baselineVariance.ts`, which is shared by the server and the UI so there is exactly one implementation and one sign convention. Establishing a baseline never changes scheduling, progress or execution truth, and the baseline comparison is presented as **Baseline** versus **Current / Forecast**; forecast dates are never called actuals.
+
+Rules frozen for baseline management:
+- One **active** baseline per project: the most recently captured one (`gantt_baselines.id`, a serial, is the deterministic tiebreaker). Capture is append-only, so replacing a baseline ("re-baseline") preserves the previous one as history — nothing is overwritten, and every capture is audited (`gantt_project_events`, `entityType = "baseline"`, `action = "capture"`).
+- Establishing a baseline is a controlled action: admin-only (`requireAdmin`), behind an explicit confirmation in the UI, never automatic on project creation, Run Schedule, Data Date change, progress update or page load, and concurrency-protected by the existing `expectedRevision` check under `lockProject` (`SELECT … FOR UPDATE`). The whole snapshot is written in one transaction, so a half-written baseline cannot exist.
+- A baseline requires a **fresh, successfully calculated schedule** (F-08), and the freshness check is read inside the same transaction as the comparison, so variance can never be presented against a stale schedule.
+- **Date variance is measured in CALENDAR days** (`current − baseline`, positive = later) because that is the shipped `compareBaseline` contract; **duration variance is measured in WORKING days**, because Primavera Lite durations are working-day quantities. Each metric uses the application calendar semantics, never a raw timestamp subtraction.
+- Variance is never fabricated: an activity added after the baseline has **no** baseline dates and `null` variance (never 0), and a baseline activity removed since the baseline keeps its approved history and reports `null` current values.
+- Activity identity is the stable internal `activityId`. Names and activity codes are carried for readability only and are never a join key, so a rename, recode or WBS move is not variance.
+- An **archived** activity is not part of the current schedule (Run Schedule excludes archived rows), so it is reported as removed/archived since the baseline with `null` variance rather than being compared against its stale leftover dates.
+- The baseline comparison lives in the focused `BaselinePanel` surface; permanent ActivityGrid columns were deliberately not added.
+- Baseline capability introduced **no schema change**: the project-level approved start/finish are derived (min/max over the frozen snapshots) and the current project finish reuses `statusingModel.summarizeStatusing().projectFinish`, so the application keeps exactly one definition of "project finish".
+
+Context:
+An audit for this workstream found that capture/list/compare already existed on `main` (`captureBaseline`, `listBaselines`, `compareBaseline`, `BaselinePanel`) with start and finish variance, but there was no duration variance, no project-level comparison, no explicit representation of work added after the baseline, and no documented sign or calendar semantics. Rather than build a second baseline concept, the existing Option-B snapshot architecture was kept and extended with a shared derived variance layer; per-activity `startVariance`/`finishVariance` behaviour, field names and the freshness gates are unchanged.
+
+Agent rule:
+- Do not introduce a second baseline store, a second variance implementation, or a second sign convention; both server and UI must use `baselineVariance.ts`.
+- Do not let baseline state reach the scheduling engine: variance is derived from frozen baseline + current schedule output, never an input to CPM.
+- Do not mutate, overwrite or delete a captured baseline; replacing one means capturing a new one.
+- Do not fabricate baseline dates or a zero variance for an activity that has no baseline.
+- Do not label a forecast date as an actual, and do not compare actuals against a baseline and call it schedule variance.
