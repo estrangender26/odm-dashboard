@@ -138,10 +138,35 @@ export interface WbsNodeRecord {
   readonly name: string;
 }
 
-/** A calendar header, as stored (used for snapshot labels only). */
+/**
+ * A project calendar, as stored.
+ *
+ * The baseline cluster reads only `name` (snapshot labels); the calendar cluster
+ * also reads `workingDays` to decide whether an edit is a no-op. One DTO serves
+ * both, so the contract has a single calendar shape.
+ */
 export interface CalendarRecord {
   readonly id: number;
+  readonly projectRef: ProjectRef;
   readonly name: string;
+  readonly workingDays: readonly number[];
+  readonly hoursPerDay: string;
+  readonly timezone: string;
+  readonly createdAt: Date | null;
+  readonly updatedAt: Date | null;
+}
+
+/** One calendar exception: a dated override of the calendar's working pattern. */
+export interface CalendarExceptionRecord {
+  readonly id: number;
+  readonly calendarId: number;
+  /** Calendar day, YYYY-MM-DD. */
+  readonly exceptionDate: string;
+  readonly isWorking: boolean;
+  readonly workingHours: string | null;
+  readonly description: string | null;
+  readonly createdAt: Date | null;
+  readonly updatedAt: Date | null;
 }
 
 /**
@@ -233,6 +258,22 @@ export interface ProjectReadScope {
   readWbsNodes(query?: WbsNodeQuery): Promise<readonly WbsNodeRecord[]>;
   readCalendars(ids: readonly number[]): Promise<readonly CalendarRecord[]>;
   /**
+   * One calendar OF THIS PROJECT, or null. Never returns a calendar that belongs
+   * to another project, whatever id is supplied.
+   */
+  readCalendar(calendarId: number): Promise<CalendarRecord | null>;
+  /** Every calendar of this project. */
+  readProjectCalendars(): Promise<readonly CalendarRecord[]>;
+  /**
+   * One exception OF THIS PROJECT, or null. Project ownership is resolved through
+   * the exception's calendar, so a foreign exception id can never be addressed.
+   */
+  readCalendarException(exceptionId: number): Promise<CalendarExceptionRecord | null>;
+  /** Every exception of one of this project's calendars. */
+  readCalendarExceptions(
+    calendarId: number
+  ): Promise<readonly CalendarExceptionRecord[]>;
+  /**
    * Resolve the effective calendar for an activity: the activity's own calendar,
    * else the project default, else the built-in default. Returns the same shape
    * the scheduling engine consumes.
@@ -291,6 +332,33 @@ export interface NewAuditEvent {
   readonly projectRevision: ProjectRevision;
 }
 
+/** A new calendar. The store owns its identity. */
+export interface NewCalendarRecord {
+  readonly name: string;
+  readonly workingDays: readonly number[];
+}
+
+/** The full replacement state of a calendar edit. */
+export interface CalendarUpdate {
+  readonly name: string;
+  readonly workingDays: readonly number[];
+}
+
+/** A new calendar exception. */
+export interface NewCalendarExceptionRecord {
+  readonly calendarId: number;
+  readonly exceptionDate: string;
+  readonly isWorking: boolean;
+  readonly description: string | null;
+}
+
+/** The full replacement state of a calendar-exception edit. */
+export interface CalendarExceptionUpdate {
+  readonly exceptionDate: string;
+  readonly isWorking: boolean;
+  readonly description: string | null;
+}
+
 /** Writes available inside a locked project scope. */
 export interface ProjectWriteScope extends ProjectReadScope {
   /** Advance the project revision by exactly one, returning the new value. */
@@ -301,6 +369,21 @@ export interface ProjectWriteScope extends ProjectReadScope {
   insertBaselineSnapshots(rows: readonly NewBaselineSnapshotRecord[]): Promise<void>;
   /** Append one audit event. */
   appendAuditEvent(event: NewAuditEvent): Promise<void>;
+  /** Insert a calendar into this project. */
+  insertCalendar(record: NewCalendarRecord): Promise<CalendarRecord>;
+  /** Replace a calendar's editable state; returns the stored result. */
+  updateCalendar(calendarId: number, update: CalendarUpdate): Promise<CalendarRecord>;
+  /** Insert an exception against one of this project's calendars. */
+  insertCalendarException(
+    record: NewCalendarExceptionRecord
+  ): Promise<CalendarExceptionRecord>;
+  /** Replace an exception's editable state; returns the stored result. */
+  updateCalendarException(
+    exceptionId: number,
+    update: CalendarExceptionUpdate
+  ): Promise<CalendarExceptionRecord>;
+  /** Permanently remove one of this project's exceptions. */
+  deleteCalendarException(exceptionId: number): Promise<void>;
 }
 
 /** Preconditions a write scope enforces before running its work. */

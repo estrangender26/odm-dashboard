@@ -32,6 +32,7 @@ export type {
   ActivityRecord,
   WbsNodeRecord,
   CalendarRecord,
+  CalendarExceptionRecord,
   BaselineRecord,
   BaselineSnapshotRecord,
   ScheduleFreshness,
@@ -42,6 +43,10 @@ export type {
   NewBaselineRecord,
   NewBaselineSnapshotRecord,
   NewAuditEvent,
+  NewCalendarRecord,
+  CalendarUpdate,
+  NewCalendarExceptionRecord,
+  CalendarExceptionUpdate,
   // scopes and the port
   ProjectReadScope,
   ProjectWriteScope,
