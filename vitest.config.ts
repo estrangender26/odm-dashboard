@@ -12,6 +12,7 @@ export default defineConfig({
       "@assets": path.resolve(templateRoot, "attached_assets"),
       "@db": path.resolve(templateRoot, "db"),
       "@db/": `${path.resolve(templateRoot, "db")}/`,
+      "@lihok/project-controls/persistence": path.resolve(templateRoot, "packages/project-controls/src/persistence/index.ts"),
       "@lihok/project-controls/testing": path.resolve(templateRoot, "packages/project-controls/src/testing.ts"),
       "@lihok/project-controls": path.resolve(templateRoot, "packages/project-controls/src/index.ts"),
     },

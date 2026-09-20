@@ -6,6 +6,7 @@
   "description": "Authoritative Lihok project-controls domain: CPM scheduling, calendars, dependency/lag semantics, progress and Data Date rules, statusing, baseline variance and schedule staleness. Pure TypeScript, zero runtime dependencies, no React/tRPC/Drizzle/ODM dependency.",
   "exports": {
     ".": "./src/index.ts",
+    "./persistence": "./src/persistence/index.ts",
     "./testing": "./src/testing.ts"
   }
 }
