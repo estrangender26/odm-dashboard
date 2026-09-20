@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { db } from "./queries/connection";
@@ -10,8 +9,6 @@ import {
   ganttCalendars,
   ganttCalendarExceptions,
   ganttProjectEvents,
-  ganttBaselines,
-  ganttBaselineActivities,
 } from "@db/schema";
 import { eq, and, or, sql, asc, isNull, isNotNull, inArray, ne } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
@@ -50,6 +47,15 @@ import {
   resolveProgress,
   type ProgressFields,
 } from "@lihok/project-controls";
+import {
+  internalProjectKey,
+  toProjectRef,
+  type ActivityRecord,
+  type BaselineRecord,
+  type BaselineSnapshotRecord,
+  type WbsNodeRecord,
+} from "@lihok/project-controls/persistence";
+import { createPrimaveraLiteBaselineStore } from "./primavera-lite-baseline-store";
 
 const MAX_NAME_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
@@ -526,9 +532,17 @@ async function lockProject(tx: PgTransaction<any, any, any>, projectId: number):
   await tx.execute(sql`SELECT 1 FROM gantt_projects WHERE id = ${projectId} FOR UPDATE`);
 }
 
+/**
+ * The subset of an access context the audit writer actually reads. Widened from
+ * `AccessContext` (type-only change) so the baseline persistence store can be
+ * injected with this ONE audit writer instead of re-implementing it — every
+ * existing caller still passes a full `AccessContext`.
+ */
+type AuditContext = Pick<AccessContext, "projectId" | "projectRevision" | "actorName">;
+
 async function insertEvent(
   tx: PgTransaction<any, any, any>,
-  ctx: AccessContext,
+  ctx: AuditContext,
   entityType: string,
   action: string,
   entityId?: number,
@@ -735,10 +749,12 @@ function mapDependencyRow(dependency: typeof ganttActivityDependencies.$inferSel
   };
 }
 
-function mapBaselineRow(baseline: typeof ganttBaselines.$inferSelect) {
+function mapBaselineRow(baseline: BaselineRecord) {
   return {
     id: baseline.id,
-    projectId: baseline.projectId,
+    // The API exposes the resolved project id; the store carries it as an opaque
+    // reference, and the ODM encoding for it is the decimal project id.
+    projectId: Number(internalProjectKey(baseline.projectRef)),
     publicId: baseline.publicId,
     name: baseline.name,
     description: baseline.description,
@@ -760,7 +776,7 @@ function mapBaselineRow(baseline: typeof ganttBaselines.$inferSelect) {
  * travel along for readability only.
  */
 function toVarianceSnapshotInput(
-  snapshot: typeof ganttBaselineActivities.$inferSelect
+  snapshot: BaselineSnapshotRecord
 ): BaselineSnapshotInput {
   return {
     snapshotId: snapshot.id,
@@ -780,12 +796,12 @@ function toVarianceSnapshotInput(
 
 /** Current activity row -> variance input. Forecast dates, never actuals. */
 function toVarianceCurrentInput(
-  activity: typeof ganttActivities.$inferSelect,
-  wbsNode?: typeof ganttWbsNodes.$inferSelect
+  activity: ActivityRecord,
+  wbsNode?: WbsNodeRecord
 ): CurrentActivityInput {
   return {
     id: activity.id,
-    activityCode: activity.activityId ?? null,
+    activityCode: activity.activityCode ?? null,
     activityName: activity.activityName,
     wbsNodeId: activity.wbsNodeId,
     wbsCode: wbsNode?.code ?? null,
@@ -1209,6 +1225,23 @@ async function resolveActivityCalendar(
     timezone: "Asia/Manila",
   };
 }
+
+/**
+ * The ONE ODM persistence adapter for the baseline cluster (M2A).
+ *
+ * captureBaseline / listBaselines / compareBaseline reach the baseline tables
+ * through this store and nowhere else. It is injected with ODM's EXISTING
+ * primitives (project lock, revision bump, the single audit writer, the F-08
+ * freshness read, calendar resolution) so the seam introduces no second
+ * implementation of any of them.
+ */
+const baselineStore = createPrimaveraLiteBaselineStore({
+  lockProject,
+  bumpProjectRevision,
+  insertEvent,
+  readScheduleFreshness: projectScheduleFreshness,
+  resolveActivityCalendar,
+});
 
 export const primaveraLiteRouter = createRouter({
   createProject: publicQuery
@@ -3518,111 +3551,93 @@ export const primaveraLiteRouter = createRouter({
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
       requireAdmin(accessCtx);
 
-      const result = await db.transaction(async (tx) => {
-        await lockProject(tx, accessCtx.projectId);
+      const result = await baselineStore.withProjectWrite(
+        toProjectRef(accessCtx.projectId),
+        { expectedRevision: input.expectedRevision },
+        async (scope) => {
+          // F-08: no baseline without a fresh successful schedule.
+          const freshness = await scope.readScheduleFreshness();
+          if (!freshness.everScheduled) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Run the schedule before capturing a baseline.",
+            });
+          }
+          if (freshness.outOfDate) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Schedule is out of date; run the schedule before capturing a baseline.",
+            });
+          }
 
-        const [projectRow] = await tx
-          .select()
-          .from(ganttProjects)
-          .where(eq(ganttProjects.id, accessCtx.projectId));
-        if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-        if (projectRow.archivedAt) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Project is archived" });
-        }
-        if (projectRow.revision !== input.expectedRevision) {
-          throw new TRPCError({ code: "CONFLICT", message: "Project was updated by another user" });
-        }
+          const activities = await scope.readActivities({ archived: "exclude" });
 
-        // F-08: no baseline without a fresh successful schedule.
-        const freshness = await projectScheduleFreshness(tx, accessCtx.projectId);
-        if (!freshness.everScheduled) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "Run the schedule before capturing a baseline.",
+          const wbsNodes = await scope.readWbsNodes({
+            ids: Array.from(new Set(activities.map((a) => a.wbsNodeId))),
           });
-        }
-        if (freshness.outOfDate) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "Schedule is out of date; run the schedule before capturing a baseline.",
-          });
-        }
 
-        const activities = await tx
-          .select()
-          .from(ganttActivities)
-          .where(and(eq(ganttActivities.projectId, accessCtx.projectId), isNull(ganttActivities.archivedAt)))
-          .orderBy(asc(ganttActivities.wbsNodeId), asc(ganttActivities.sortOrder), asc(ganttActivities.id));
+          const calendarIds = Array.from(
+            new Set(activities.map((a) => a.calendarId).filter((id): id is number => Boolean(id)))
+          );
+          const calendars = await scope.readCalendars(calendarIds);
 
-        const wbsNodeIds = Array.from(new Set(activities.map((a) => a.wbsNodeId)));
-        const wbsNodes =
-          wbsNodeIds.length > 0
-            ? await tx.select().from(ganttWbsNodes).where(inArray(ganttWbsNodes.id, wbsNodeIds))
-            : [];
+          const wbsById = new Map(wbsNodes.map((n) => [n.id, n]));
+          const calById = new Map(calendars.map((c) => [c.id, c]));
 
-        const calendarIds = Array.from(new Set(activities.map((a) => a.calendarId).filter(Boolean))) as number[];
-        const calendars =
-          calendarIds.length > 0
-            ? await tx.select().from(ganttCalendars).where(inArray(ganttCalendars.id, calendarIds))
-            : [];
+          const activityCount = activities.length;
 
-        const wbsById = new Map(wbsNodes.map((n) => [n.id, n]));
-        const calById = new Map(calendars.map((c) => [c.id, c]));
+          const newRevision = await scope.bumpProjectRevision();
+          accessCtx.projectRevision = newRevision;
+          accessCtx.actorName = input.actorName;
 
-        const activityCount = activities.length;
-
-        const newRevision = await bumpProjectRevision(tx, accessCtx.projectId);
-        accessCtx.projectRevision = newRevision;
-        accessCtx.actorName = input.actorName;
-
-        const [baseline] = await tx
-          .insert(ganttBaselines)
-          .values({
-            projectId: accessCtx.projectId,
-            publicId: randomUUID(),
+          const baseline = await scope.insertBaseline({
             name: input.name,
             description: input.description ?? null,
             activityCount,
             projectRevision: newRevision,
             capturedByName: input.actorName ?? "Anonymous",
-          })
-          .returning();
-
-        if (activities.length > 0) {
-          const snapshotValues = activities.map((a) => {
-            const wbs = wbsById.get(a.wbsNodeId);
-            const cal = a.calendarId ? calById.get(a.calendarId) : undefined;
-            return {
-              baselineId: baseline.id,
-              activityId: a.id,
-              activityCode: a.activityId ?? null,
-              activityName: a.activityName,
-              wbsNodeId: a.wbsNodeId,
-              wbsCode: wbs?.code ?? null,
-              wbsName: wbs?.name ?? null,
-              calendarId: a.calendarId ?? null,
-              calendarName: cal?.name ?? null,
-              originalDurationDays: a.originalDurationDays,
-              scheduledStart: a.earlyStart ?? null,
-              scheduledFinish: a.earlyFinish ?? null,
-              sortOrder: a.sortOrder,
-            };
           });
-          await tx.insert(ganttBaselineActivities).values(snapshotValues);
+
+          await scope.insertBaselineSnapshots(
+            activities.map((a) => {
+              const wbs = wbsById.get(a.wbsNodeId);
+              const cal = a.calendarId ? calById.get(a.calendarId) : undefined;
+              return {
+                baselineId: baseline.id,
+                activityId: a.id,
+                activityCode: a.activityCode ?? null,
+                activityName: a.activityName,
+                wbsNodeId: a.wbsNodeId,
+                wbsCode: wbs?.code ?? null,
+                wbsName: wbs?.name ?? null,
+                calendarId: a.calendarId ?? null,
+                calendarName: cal?.name ?? null,
+                originalDurationDays: a.originalDurationDays,
+                scheduledStart: a.earlyStart ?? null,
+                scheduledFinish: a.earlyFinish ?? null,
+                sortOrder: a.sortOrder,
+              };
+            })
+          );
+
+          await scope.appendAuditEvent({
+            entityType: "baseline",
+            entityId: baseline.id,
+            action: "capture",
+            actorName: accessCtx.actorName ?? "Anonymous",
+            beforeData: null,
+            afterData: {
+              baselineId: baseline.id,
+              name: baseline.name,
+              activityCount,
+              projectRevision: newRevision,
+            },
+            projectRevision: newRevision,
+          });
+
+          return { baseline, activityCount };
         }
-
-        await insertEvent(
-          tx,
-          accessCtx,
-          "baseline",
-          "capture",
-          baseline.id,
-          null,
-          { baselineId: baseline.id, name: baseline.name, activityCount, projectRevision: newRevision }
-        );
-
-        return { baseline, activityCount };
-      });
+      );
 
       return {
         baseline: mapBaselineRow(result.baseline),
@@ -3636,11 +3651,7 @@ export const primaveraLiteRouter = createRouter({
     .query(async ({ input }) => {
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
 
-      const baselines = await db
-        .select()
-        .from(ganttBaselines)
-        .where(eq(ganttBaselines.projectId, accessCtx.projectId))
-        .orderBy(asc(ganttBaselines.createdAt));
+      const baselines = await baselineStore.listBaselines(toProjectRef(accessCtx.projectId));
 
       return { baselines: baselines.map(mapBaselineRow) };
     }),
@@ -3650,129 +3661,114 @@ export const primaveraLiteRouter = createRouter({
     .query(async ({ input }) => {
       const accessCtx = await resolveProjectAccess(input.slug, input.access);
 
-      const [baseline] = await db
-        .select()
-        .from(ganttBaselines)
-        .where(and(eq(ganttBaselines.id, input.baselineId), eq(ganttBaselines.projectId, accessCtx.projectId)));
+      const baseline = await baselineStore.readBaseline(
+        toProjectRef(accessCtx.projectId),
+        input.baselineId
+      );
       if (!baseline) throw new TRPCError({ code: "NOT_FOUND", message: "Baseline not found" });
 
       // The frozen baseline, the current schedule AND the F-08 freshness check
       // are read inside one transaction, so a comparison can neither straddle
       // two project revisions nor pass staleness and then read a schedule that
       // has just been invalidated.
-      const comparison = await db.transaction(async (tx) => {
-        const [projectRow] = await tx
-          .select()
-          .from(ganttProjects)
-          .where(eq(ganttProjects.id, accessCtx.projectId));
-        if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      const comparison = await baselineStore.withProjectRead(
+        toProjectRef(accessCtx.projectId),
+        async (scope) => {
+          const projectRow = await scope.readProject();
+          if (!projectRow) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
 
-        // F-08: never present variances computed against a stale (or never
-        // scheduled) current schedule.
-        const freshness = await projectScheduleFreshness(tx, accessCtx.projectId);
-        if (!freshness.everScheduled) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "Run the schedule before comparing baseline variances.",
-          });
+          // F-08: never present variances computed against a stale (or never
+          // scheduled) current schedule.
+          const freshness = await scope.readScheduleFreshness();
+          if (!freshness.everScheduled) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Run the schedule before comparing baseline variances.",
+            });
+          }
+          if (freshness.outOfDate) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Schedule is out of date; run the schedule before comparing baseline variances.",
+            });
+          }
+
+          const snapshots = await scope.readBaselineSnapshots(baseline.id);
+
+          // Every activity of THIS project. Archived rows are included so an
+          // archived baseline activity is still joined (and reported as
+          // archived) instead of silently disappearing; activities from other
+          // projects can never satisfy a join.
+          const allActivities = await scope.readActivities();
+          const currentById = new Map(allActivities.map((a) => [a.id, a]));
+
+          const wbsNodes = await scope.readWbsNodes();
+          const wbsById = new Map(wbsNodes.map((n) => [n.id, n]));
+
+          // One calendar object per calendarId: the engine caches calendars by
+          // object identity, so reusing the same instance is both correct and
+          // cheap.
+          const calendarCache = new Map<number, ScheduleCalendarInput>();
+          const calendarFor = async (calendarId: number | null) => {
+            const key = calendarId ?? projectRow.defaultCalendarId ?? 0;
+            const cached = calendarCache.get(key);
+            if (cached) return cached;
+            const cal = await scope.resolveCalendar(calendarId, projectRow.defaultCalendarId);
+            calendarCache.set(key, cal);
+            return cal;
+          };
+
+          // `comparisons` is exactly one row per approved baseline activity, in
+          // baseline order — the shipped contract for this field.
+          const comparisons: BaselineComparisonRow[] = [];
+          for (const snapshot of snapshots) {
+            const currentRow = currentById.get(snapshot.activityId);
+            comparisons.push(
+              compareActivityToBaseline({
+                snapshot: toVarianceSnapshotInput(snapshot),
+                current: currentRow ? toVarianceCurrentInput(currentRow, wbsById.get(currentRow.wbsNodeId)) : null,
+                // The duration the CURRENT schedule carries is measured on the
+                // activity's OWN calendar, exactly as the engine selects one
+                // (schedulingEngine: `act.calendarId` when it resolves, else the
+                // project default) — never on whichever calendar the baseline
+                // happened to be approved under. The snapshot's calendar stays on
+                // the row for display only. Note this calendar affects ONLY the
+                // current duration; the approved dates and duration are frozen.
+                calendar: await calendarFor(currentRow ? currentRow.calendarId : snapshot.calendarId),
+              })
+            );
+          }
+
+          // Work added AFTER the baseline. Reported separately so it can never be
+          // mistaken for a baseline row, and never given invented baseline dates.
+          const baselineActivityIds = new Set(snapshots.map((s) => s.activityId));
+          const currentActivities = allActivities.filter((a) => a.archivedAt == null);
+          const newSinceBaseline: BaselineComparisonRow[] = [];
+          for (const activity of currentActivities) {
+            if (baselineActivityIds.has(activity.id)) continue;
+            newSinceBaseline.push(
+              compareActivityToBaseline({
+                snapshot: null,
+                current: toVarianceCurrentInput(activity, wbsById.get(activity.wbsNodeId)),
+                calendar: await calendarFor(activity.calendarId),
+              })
+            );
+          }
+
+          return {
+            comparisons,
+            newSinceBaseline,
+            project: buildProjectComparison({
+              rows: [...comparisons, ...newSinceBaseline],
+              baselineActivityCount: baseline.activityCount,
+              // Project finish keeps exactly one definition in the application:
+              // the statusing roll-up that StatusingPanel already displays.
+              currentProjectFinish: summarizeStatusing(currentActivities, projectRow.dataDate)
+                .projectFinish,
+            }),
+          };
         }
-        if (freshness.outOfDate) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "Schedule is out of date; run the schedule before comparing baseline variances.",
-          });
-        }
-
-        const snapshots = await tx
-          .select()
-          .from(ganttBaselineActivities)
-          .where(eq(ganttBaselineActivities.baselineId, baseline.id))
-          .orderBy(asc(ganttBaselineActivities.sortOrder), asc(ganttBaselineActivities.id));
-
-        // Every activity of THIS project. Archived rows are included so an
-        // archived baseline activity is still joined (and reported as
-        // archived) instead of silently disappearing; activities from other
-        // projects can never satisfy a join.
-        const allActivities = await tx
-          .select()
-          .from(ganttActivities)
-          .where(eq(ganttActivities.projectId, accessCtx.projectId));
-        const currentById = new Map(allActivities.map((a) => [a.id, a]));
-
-        const wbsNodes = await tx
-          .select()
-          .from(ganttWbsNodes)
-          .where(eq(ganttWbsNodes.projectId, accessCtx.projectId));
-        const wbsById = new Map(wbsNodes.map((n) => [n.id, n]));
-
-        // One calendar object per calendarId: the engine caches calendars by
-        // object identity, so reusing the same instance is both correct and
-        // cheap.
-        const calendarCache = new Map<number, ScheduleCalendarInput>();
-        const calendarFor = async (calendarId: number | null | undefined) => {
-          const key = calendarId ?? projectRow.defaultCalendarId ?? 0;
-          const cached = calendarCache.get(key);
-          if (cached) return cached;
-          const cal = await resolveActivityCalendar(
-            tx,
-            accessCtx.projectId,
-            calendarId,
-            projectRow.defaultCalendarId
-          );
-          calendarCache.set(key, cal);
-          return cal;
-        };
-
-        // `comparisons` is exactly one row per approved baseline activity, in
-        // baseline order — the shipped contract for this field.
-        const comparisons: BaselineComparisonRow[] = [];
-        for (const snapshot of snapshots) {
-          const currentRow = currentById.get(snapshot.activityId);
-          comparisons.push(
-            compareActivityToBaseline({
-              snapshot: toVarianceSnapshotInput(snapshot),
-              current: currentRow ? toVarianceCurrentInput(currentRow, wbsById.get(currentRow.wbsNodeId)) : null,
-              // The duration the CURRENT schedule carries is measured on the
-              // activity's OWN calendar, exactly as the engine selects one
-              // (schedulingEngine: `act.calendarId` when it resolves, else the
-              // project default) — never on whichever calendar the baseline
-              // happened to be approved under. The snapshot's calendar stays on
-              // the row for display only. Note this calendar affects ONLY the
-              // current duration; the approved dates and duration are frozen.
-              calendar: await calendarFor(currentRow ? currentRow.calendarId : snapshot.calendarId),
-            })
-          );
-        }
-
-        // Work added AFTER the baseline. Reported separately so it can never be
-        // mistaken for a baseline row, and never given invented baseline dates.
-        const baselineActivityIds = new Set(snapshots.map((s) => s.activityId));
-        const currentActivities = allActivities.filter((a) => a.archivedAt == null);
-        const newSinceBaseline: BaselineComparisonRow[] = [];
-        for (const activity of currentActivities) {
-          if (baselineActivityIds.has(activity.id)) continue;
-          newSinceBaseline.push(
-            compareActivityToBaseline({
-              snapshot: null,
-              current: toVarianceCurrentInput(activity, wbsById.get(activity.wbsNodeId)),
-              calendar: await calendarFor(activity.calendarId),
-            })
-          );
-        }
-
-        return {
-          comparisons,
-          newSinceBaseline,
-          project: buildProjectComparison({
-            rows: [...comparisons, ...newSinceBaseline],
-            baselineActivityCount: baseline.activityCount,
-            // Project finish keeps exactly one definition in the application:
-            // the statusing roll-up that StatusingPanel already displays.
-            currentProjectFinish: summarizeStatusing(currentActivities, projectRow.dataDate)
-              .projectFinish,
-          }),
-        };
-      });
+      );
 
       return {
         baseline: mapBaselineRow(baseline),

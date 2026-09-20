@@ -160,7 +160,11 @@ describe("project-controls extraction boundary", () => {
   });
 
   it("makes ODM consume the package through its public entry points only", () => {
-    const allowed = new Set(["@lihok/project-controls", "@lihok/project-controls/testing"]);
+    const allowed = new Set([
+      "@lihok/project-controls",
+      "@lihok/project-controls/persistence",
+      "@lihok/project-controls/testing",
+    ]);
     const violations: string[] = [];
     for (const f of FILES) {
       const r = rel(f);
@@ -196,6 +200,7 @@ describe("project-controls extraction boundary", () => {
     expect(manifest.private).toBe(true);
     expect(manifest.type).toBe("module");
     expect(manifest.exports?.["."]).toBe("./src/index.ts");
+    expect(manifest.exports?.["./persistence"]).toBe("./src/persistence/index.ts");
     expect(manifest.exports?.["./testing"]).toBe("./src/testing.ts");
 
     // Zero runtime dependencies: the package is pure TypeScript.
@@ -216,5 +221,141 @@ describe("project-controls extraction boundary", () => {
     const consumers = FILES.filter((f) => !rel(f).startsWith(PKG_PREFIX))
       .filter((f) => importSpecifiers(readFileSync(f, "utf8")).some((s) => s.startsWith("@lihok/project-controls")));
     expect(consumers.length).toBeGreaterThanOrEqual(8);
+  });
+});
+
+/**
+ * M2A persistence-boundary guard.
+ *
+ * The port exists so that every consumer of the baseline cluster shares ONE
+ * persistence implementation. These assertions make that structural rather than
+ * aspirational: the package may DECLARE the contract but never implement it, ODM
+ * must have exactly one baseline adapter, and no second path to the baseline
+ * tables may appear.
+ */
+
+const PERSISTENCE_PREFIX = `${PKG_PREFIX}src/persistence/`;
+const BASELINE_ADAPTER = "api/primavera-lite-baseline-store.ts";
+const ROUTER = "api/primavera-lite-router.ts";
+/** The canonical physical schema is not a persistence implementation. */
+const SCHEMA_MODULE = "db/schema.ts";
+
+/** Files the persistence contract folder may contain. Types and semantics only. */
+const PERSISTENCE_FOLDER_INVENTORY = ["contract.ts", "index.ts"];
+
+/** The ONLY runtime values the persistence entry may export (pure encodings). */
+const PERSISTENCE_VALUE_EXPORTS = ["asProjectRevision", "internalProjectKey", "toProjectRef"];
+
+/** The baseline cluster's tables. */
+const BASELINE_TABLES = ["ganttBaselines", "ganttBaselineActivities"];
+
+function filesReferencingBaselineTables(): string[] {
+  return FILES.filter((f) => {
+    const source = readFileSync(f, "utf8");
+    return BASELINE_TABLES.some((t) => new RegExp(`\\b${t}\\b`).test(source));
+  }).map(rel);
+}
+
+/** Names a module exports as VALUES — `export type { … }` is deliberately excluded. */
+function valueExports(source: string): string[] {
+  const withoutComments = source.replace(/\/\/[^\n]*/g, "");
+  const names: string[] = [];
+  const re = /(?:^|\n)\s*export\s*\{([^}]*)\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(withoutComments))) {
+    for (const raw of m[1].split(",")) {
+      const entry = raw.trim();
+      if (!entry) continue;
+      const [local, exported] = entry.split(/\s+as\s+/).map((s) => s.trim());
+      names.push(exported || local);
+    }
+  }
+  return names;
+}
+
+describe("project-controls persistence boundary (M2A)", () => {
+  it("declares the persistence contract inside the package", () => {
+    const contractPath = path.join(REPO, PERSISTENCE_PREFIX, "contract.ts");
+    expect(existsSync(contractPath), "the package must declare the persistence contract").toBe(true);
+
+    const source = readFileSync(contractPath, "utf8");
+    for (const declaration of [
+      "interface ProjectControlsStore",
+      "interface ProjectReadScope",
+      "interface ProjectWriteScope",
+      "interface ProjectWriteGate",
+      "type ProjectRef",
+      "type ProjectRevision",
+      "type RowRevision",
+    ]) {
+      expect(source, `the persistence contract must declare ${declaration}`).toContain(declaration);
+    }
+  });
+
+  it("keeps the persistence folder to contract files only — no implementation", () => {
+    const folder = path.join(REPO, PERSISTENCE_PREFIX);
+    // Test files are colocated by package convention and are never published as
+    // an implementation; everything else in this folder must be contract only.
+    const nonTest = readdirSync(folder)
+      .filter((entry) => !/\.(test|spec)\.tsx?$/.test(entry))
+      .sort();
+    expect(
+      nonTest,
+      "a store implementation inside the package would recreate the fork the port exists to prevent"
+    ).toEqual([...PERSISTENCE_FOLDER_INVENTORY].sort());
+  });
+
+  it("exports the persistence contract and no persistence implementation", () => {
+    const entry = readFileSync(path.join(REPO, PERSISTENCE_PREFIX, "index.ts"), "utf8");
+    expect(
+      valueExports(entry).sort(),
+      "the persistence entry may export contract semantics only (pure encodings), never a store"
+    ).toEqual([...PERSISTENCE_VALUE_EXPORTS].sort());
+  });
+
+  it("routes every baseline table access through the ONE ODM baseline adapter", () => {
+    const owners = filesReferencingBaselineTables().filter(
+      (f) => f !== SCHEMA_MODULE && !/\.(test|spec)\.tsx?$/.test(f)
+    );
+    expect(
+      owners,
+      "baseline persistence must have exactly one owner: the ODM adapter (test fakes and the canonical schema excluded)"
+    ).toEqual([BASELINE_ADAPTER]);
+  });
+
+  it("keeps the baseline adapter in ODM and the baseline tables out of the package", () => {
+    expect(existsSync(path.join(REPO, BASELINE_ADAPTER)), "the ODM baseline adapter must exist").toBe(true);
+    expect(
+      filesReferencingBaselineTables().filter((f) => f.startsWith(PKG_PREFIX)),
+      "the package declares the port; it must never own the tables"
+    ).toEqual([]);
+  });
+
+  it("proves the adapter implements the port through the public subpath only", () => {
+    const adapter = readFileSync(path.join(REPO, BASELINE_ADAPTER), "utf8");
+    expect(importSpecifiers(adapter)).toContain("@lihok/project-controls/persistence");
+    expect(adapter).toContain("ProjectControlsStore");
+  });
+
+  it("proves the baseline procedures go through the adapter (no decorative port)", () => {
+    const router = readFileSync(path.join(REPO, ROUTER), "utf8");
+    expect(importSpecifiers(router)).toContain("./primavera-lite-baseline-store");
+    const uses = router.match(/baselineStore\./g) ?? [];
+    expect(
+      uses.length,
+      "captureBaseline, listBaselines and compareBaseline must each reach persistence through the store"
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("never reaches into the persistence contract by path", () => {
+    // This guard necessarily contains the path it forbids, so it excludes itself.
+    const self = "src/lib/project-controls-boundary.test.ts";
+    const offenders = FILES.map(rel)
+      .filter((r) => !r.startsWith(PKG_PREFIX) && r !== self)
+      .filter((r) => readFileSync(path.join(REPO, r), "utf8").includes("project-controls/src/persistence"));
+    expect(
+      offenders,
+      "import the public subpath @lihok/project-controls/persistence, never a path inside the package"
+    ).toEqual([]);
   });
 });

@@ -23,6 +23,9 @@
       "@db/*": [
         "./db/*"
       ],
+      "@lihok/project-controls/persistence": [
+        "./packages/project-controls/src/persistence/index.ts"
+      ],
       "@lihok/project-controls/testing": [
         "./packages/project-controls/src/testing.ts"
       ],
