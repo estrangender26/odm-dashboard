@@ -207,8 +207,9 @@ export function formatScorecardCell(
 ): string {
   if (!isPresentNumber(value)) return "";
   if (key === "mttrDays") {
-    // MTTR display rule: at most two decimals, no redundant trailing zeros, and
-    // whole numbers stay whole — 0.666666... reads as "0.67", never "1".
+    // MTTR display rule (PR #445): at most two decimals, no redundant trailing
+    // zeros, and whole numbers stay whole — 0.666666... reads as "0.67", never
+    // "1".
     return formatMttrDaysDisplay(value);
   }
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {

@@ -179,9 +179,9 @@ function formatPrecisePercent(value: number): string {
 function formatDisplayValue(key: ScorecardKpiKey, value: number | null): string {
   if (!isPresentNumber(value)) return "";
   if (key === "mttrDays") {
-    // MTTR display rule: at most two decimals, no redundant trailing zeros, and
-    // whole numbers stay whole — 0.666666... reads as "0.67", never "1".
-    // Covers the monthly cells, the YTD row and the Slide 2/3 value lists.
+    // MTTR display rule (PR #445): at most two decimals, no redundant trailing
+    // zeros, and whole numbers stay whole — 0.666666... reads as "0.67", never
+    // "1". Covers the monthly cells, the YTD row and the Slide 2/3 value lists.
     return formatMttrDaysDisplay(value);
   }
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {

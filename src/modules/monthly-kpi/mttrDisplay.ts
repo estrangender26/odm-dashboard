@@ -1,5 +1,5 @@
 /**
- * MTTR display precision (monthly KPI scorecard).
+ * MTTR display precision (PR #445).
  *
  * Presentation-only rule for the MTTR (days) KPI:
  *
