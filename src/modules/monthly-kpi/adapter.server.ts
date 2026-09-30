@@ -19,6 +19,7 @@ import {
 import { buildAllBusinessUnitsDeckData, normalizeStoredCommentary } from "./allBusinessUnitsData";
 import { generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
 import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
+import { formatMttrDaysDisplay } from "./mttrDisplay";
 import {
   evaluateKpiStatus,
   formatThresholdBenchmark,
@@ -65,7 +66,10 @@ function isPresentNumber(value: number | null | undefined): value is number {
 
 function formatMetricValue(key: ScorecardKpiKey, value: number | null): string {
   if (!isPresentNumber(value)) return "No Data";
-  if (key === "mttrDays") return `${value.toFixed(2)} days`;
+  if (key === "mttrDays") {
+    // MTTR display rule: at most two decimals, whole numbers stay whole.
+    return `${formatMttrDaysDisplay(value)} days`;
+  }
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     if (value >= 100) return "No CM";
     const cmShare = 100 - value;

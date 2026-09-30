@@ -27,6 +27,7 @@
  */
 
 import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
+import { formatMttrDaysDisplay } from "./mttrDisplay";
 import {
   evaluateKpiStatus,
   getDefaultMonthlyKpiThresholdConfig,
@@ -85,7 +86,10 @@ function round2(value: number): string {
 
 export function formatExecutiveKpiValue(key: ScorecardKpiKey, value: number | null): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "no data";
-  if (key === "mttrDays") return `${round2(value)} days`;
+  if (key === "mttrDays") {
+    // MTTR display rule: at most two decimals, whole numbers stay whole.
+    return `${formatMttrDaysDisplay(value)} days`;
+  }
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     return value >= 100 ? "No CM" : `${value.toFixed(1)}%`;
   }

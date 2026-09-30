@@ -1913,3 +1913,72 @@ describe("Facility Uptime display precision (PR #427)", () => {
     }
   });
 });
+
+describe("MTTR display precision — All-BU scorecard monthly and YTD (MTTR fix)", () => {
+  it("formats MTTR with at most two decimals and no redundant trailing zeros", () => {
+    expect(formatScorecardCell("mttrDays", 0)).toBe("0");
+    expect(formatScorecardCell("mttrDays", 1)).toBe("1");
+    expect(formatScorecardCell("mttrDays", 1.2)).toBe("1.2");
+    expect(formatScorecardCell("mttrDays", 1.25)).toBe("1.25");
+    expect(formatScorecardCell("mttrDays", 2.5)).toBe("2.5");
+    expect(formatScorecardCell("mttrDays", 2)).toBe("2");
+    // The defect: 0.666666... days was rounded to the whole number "1".
+    expect(formatScorecardCell("mttrDays", 2 / 3)).toBe("0.67");
+    expect(formatScorecardCell("mttrDays", 2 / 3)).not.toBe("1");
+    expect(formatScorecardCell("mttrDays", 1.2366666666666666)).toBe("1.24");
+    expect(formatScorecardCell("mttrDays", 2.5)).not.toBe("2.50");
+    expect(formatScorecardCell("mttrDays", 2)).not.toBe("2.00");
+    // Missing MTTR still renders as an empty cell.
+    expect(formatScorecardCell("mttrDays", null)).toBe("");
+  });
+
+  it("leaves every other KPI's All-BU formatting unchanged", () => {
+    expect(formatScorecardCell("pmCompliance", 99.996)).toBe("99.996%");
+    expect(formatScorecardCell("facilityUptime", 99.996)).toBe("99.99%");
+    expect(formatScorecardCell("facilityUptime", 100)).toBe("100%");
+    expect(formatScorecardCell("budgetSpend", 79.04)).toBe("79%");
+  });
+
+  it("renders sub-day MTTR as 0.67 in the generated All-BU deck (never rounded to 1)", async () => {
+    // Every AMD-EZ month becomes downtime 2 / repairs 3, so both the monthly
+    // rows and the cumulative YTD row equal 0.6666666666666666 days.
+    const subDayRecords = records.map((record) =>
+      record.business_unit === "AMD-EZ"
+        ? {
+            ...record,
+            mttr_downtime: 2,
+            repair_count: 3,
+            mttr_days: 2 / 3,
+          }
+        : record
+    );
+
+    const data = buildAllBusinessUnitsDeckData(subDayRecords, 2026, 9);
+    const blob = await generateAllBusinessUnitsMonthlyKpiDeck(data);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slides = await orderedSlideXml(zip);
+
+    const sectionIndex = data.sections.findIndex(
+      (s) => s.businessUnit === "AMD-EZ"
+    );
+    expect(sectionIndex).toBeGreaterThan(-1);
+
+    const rows = tableRowTexts(slides[1 + sectionIndex * 2].xml);
+    const mttrColumn = rows[0].findIndex((h) => normalizeJoin(h).includes("MTTR"));
+    expect(mttrColumn).toBeGreaterThan(-1);
+
+    const effective = data.effectiveReportingMonth;
+    for (let month = 1; month <= effective; month++) {
+      expect(rows[month][mttrColumn], `month ${month}`).toBe("0.67");
+    }
+    // YTD row is the second-to-last row of the table.
+    expect(rows[rows.length - 2][mttrColumn]).toBe("0.67");
+
+    // No MTTR body cell (monthly or YTD) may read as the rounded whole number.
+    const bodyCells = rows
+      .slice(1, rows.length - 1)
+      .map((r) => (r[mttrColumn] ?? "").trim());
+    expect(bodyCells).not.toContain("1");
+    expect(bodyCells.every((cell) => cell === "0.67")).toBe(true);
+  });
+});

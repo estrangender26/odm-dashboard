@@ -674,11 +674,15 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(matrix.some((row) => row.includes("96%"))).toBe(true);
     expect(matrix.some((row) => row.includes("84% (5.4:1)"))).toBe(true);
     expect(matrix.some((row) => row.includes("75% (3.0:1)"))).toBe(true);
-    expect(matrix.some((row) => row.includes("64"))).toBe(true);
+    // MTTR is NO LONGER rounded to a whole day: 63.64 days displays as "63.64"
+    // (and never as the rounded whole number "64").
+    expect(matrix.some((row) => row.includes("63.64"))).toBe(true);
+    expect(matrix.some((row) => row.includes("64"))).toBe(false);
     expect(matrix.some((row) => row.includes("100%"))).toBe(true);
     // PM Compliance preserves authoritative decimals (98.38%, not 98%).
     expect(xml).toContain("98.38%");
-    expect(xml).not.toContain("63.64");
+    // The authoritative MTTR is rendered verbatim at two decimals.
+    expect(xml).toContain("63.64");
   });
 
   it("rounds KPI values for executive display on Slide 2", async () => {
@@ -1423,5 +1427,173 @@ describe("Facility Uptime display precision — single-BU deck (PR #427)", () =>
     expect(rows[rows.length - 2][uptimeColumn]).toBe("99.89%");
     // PM Compliance formatter intentionally untouched by PR #427.
     expect(rows[rows.length - 2][pmColumn]).toBe("99.996%");
+  });
+});
+
+describe("MTTR display precision — single-BU scorecard monthly and YTD (MTTR fix)", () => {
+  // An actual calculated MTTR of 2/3 days must never be displayed as "1".
+  const SUB_DAY_MTTR = 2 / 3;
+
+  /** Slide 1 table as rows of CELLS (each cell = concatenated <a:t> runs). */
+  async function slide1TableCells(blob: Blob): Promise<string[][]> {
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const xml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    return [...xml.matchAll(/<a:tr\b[\s\S]*?<\/a:tr>/g)].map((row) =>
+      [...row[0].matchAll(/<a:tc\b[\s\S]*?<\/a:tc>/g)].map((cell) =>
+        [...cell[0].matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+          .map((t) => t[1])
+          .join("")
+      )
+    );
+  }
+
+  function columnOf(header: string[], needle: string): number {
+    const index = header.findIndex((h) => h.replace(/\s+/g, "").includes(needle));
+    expect(index, `column ${needle} in ${JSON.stringify(header)}`).toBeGreaterThan(-1);
+    return index;
+  }
+
+  /** Body rows = the 8 monthly rows plus the YTD row (excludes header and TARGET). */
+  function mttrBodyCells(rows: string[][], column: number): string[] {
+    return rows.slice(1, rows.length - 1).map((r) => r[column] ?? "");
+  }
+
+  function dataWithMttr(
+    mttrMonthly: number | null,
+    mttrYtd: number | null
+  ): MonthlyKpiPresentation {
+    const data = createTestDataForMonth(8, [1, 2, 3, 4, 5, 6, 7, 8], {
+      pmCompliance: 99.996,
+      facilityUptime: 99.996,
+      budgetSpend: 79.04,
+    });
+    data.selectedBusinessUnit = "AMD-EZ";
+    const selected = data.buScorecards.find((b) => b.businessUnit === "AMD-EZ")!;
+
+    // Set MTTR explicitly on every monthly row: the fixture helper coerces a
+    // null override to 0, and this suite needs a genuinely null month.
+    for (const point of selected.monthlyTrend) {
+      point.values.mttrDays = {
+        value: mttrMonthly,
+        status: "success",
+        formatted: String(mttrMonthly),
+      } as unknown as typeof point.values.mttrDays;
+    }
+    selected.ytd.mttrDays = {
+      value: mttrYtd,
+      status: "success",
+      formatted: String(mttrYtd),
+    } as unknown as typeof selected.ytd.mttrDays;
+
+    // Non-MTTR YTD values are set only to prove their formatting is unchanged
+    // (the base fixture carries different AMD-EZ YTD values).
+    selected.ytd.pmCompliance = {
+      value: 99.996,
+      status: "success",
+      formatted: "99.996%",
+    } as unknown as typeof selected.ytd.pmCompliance;
+    selected.ytd.facilityUptime = {
+      value: 99.996,
+      status: "success",
+      formatted: "99.99%",
+    } as unknown as typeof selected.ytd.facilityUptime;
+    selected.ytd.budgetSpend = {
+      value: 79.04,
+      status: "success",
+      formatted: "79%",
+    } as unknown as typeof selected.ytd.budgetSpend;
+
+    return data;
+  }
+
+  it("renders a sub-day MTTR as 0.67 in the monthly AND YTD rows (never rounded to 1)", async () => {
+    const blob = await generateMonthlyKpiPresentation(
+      dataWithMttr(SUB_DAY_MTTR, SUB_DAY_MTTR)
+    );
+    const rows = await slide1TableCells(blob);
+    const mttrColumn = columnOf(rows[0], "MTTR");
+
+    for (let month = 1; month <= 8; month++) {
+      expect(rows[month][mttrColumn], `month ${month}`).toBe("0.67");
+    }
+    // YTD row is the second-to-last row of the table.
+    expect(rows[rows.length - 2][mttrColumn]).toBe("0.67");
+
+    const bodyCells = mttrBodyCells(rows, mttrColumn);
+    expect(bodyCells).not.toContain("1");
+    expect(bodyCells).not.toContain("1.00");
+    expect(bodyCells.every((cell) => cell === "0.67")).toBe(true);
+  });
+
+  it("rounds fractional MTTR to at most two decimals, trimming trailing zeros", async () => {
+    const blob = await generateMonthlyKpiPresentation(
+      dataWithMttr(1.2366666666666666, 1.25)
+    );
+    const rows = await slide1TableCells(blob);
+    const mttrColumn = columnOf(rows[0], "MTTR");
+
+    expect(rows[1][mttrColumn]).toBe("1.24");
+    expect(rows[8][mttrColumn]).toBe("1.24");
+    // 1.25 keeps both decimals; 2.5 never renders as "2.50".
+    expect(rows[rows.length - 2][mttrColumn]).toBe("1.25");
+
+    const trailingZeroBlob = await generateMonthlyKpiPresentation(
+      dataWithMttr(2.5, 2)
+    );
+    const trailingZeroRows = await slide1TableCells(trailingZeroBlob);
+    const col = columnOf(trailingZeroRows[0], "MTTR");
+
+    expect(trailingZeroRows[1][col]).toBe("2.5");
+    expect(trailingZeroRows[trailingZeroRows.length - 2][col]).toBe("2");
+    expect(mttrBodyCells(trailingZeroRows, col)).not.toContain("2.50");
+    expect(mttrBodyCells(trailingZeroRows, col)).not.toContain("2.00");
+  });
+
+  it("keeps whole-number MTTR whole (27 stays 27, never 27.00)", async () => {
+    const blob = await generateMonthlyKpiPresentation(dataWithMttr(27, 29));
+    const rows = await slide1TableCells(blob);
+    const mttrColumn = columnOf(rows[0], "MTTR");
+
+    expect(rows[1][mttrColumn]).toBe("27");
+    expect(rows[8][mttrColumn]).toBe("27");
+    expect(rows[rows.length - 2][mttrColumn]).toBe("29");
+
+    const bodyCells = mttrBodyCells(rows, mttrColumn);
+    expect(bodyCells).not.toContain("27.00");
+    expect(bodyCells).not.toContain("29.00");
+    expect(bodyCells.some((cell) => cell.includes("."))).toBe(false);
+  });
+
+  it("renders 0 as 0 and keeps missing MTTR blank", async () => {
+    const zeroBlob = await generateMonthlyKpiPresentation(dataWithMttr(0, 0));
+    const zeroRows = await slide1TableCells(zeroBlob);
+    const zeroColumn = columnOf(zeroRows[0], "MTTR");
+    expect(zeroRows[1][zeroColumn]).toBe("0");
+    expect(zeroRows[zeroRows.length - 2][zeroColumn]).toBe("0");
+    expect(mttrBodyCells(zeroRows, zeroColumn)).not.toContain("0.00");
+
+    const nullBlob = await generateMonthlyKpiPresentation(dataWithMttr(null, null));
+    const nullRows = await slide1TableCells(nullBlob);
+    const nullColumn = columnOf(nullRows[0], "MTTR");
+    expect(nullRows[1][nullColumn]).toBe("");
+    expect(nullRows[nullRows.length - 2][nullColumn]).toBe("");
+  });
+
+  it("leaves every other KPI's presentation formatting unchanged", async () => {
+    const blob = await generateMonthlyKpiPresentation(
+      dataWithMttr(SUB_DAY_MTTR, SUB_DAY_MTTR)
+    );
+    const rows = await slide1TableCells(blob);
+    const pmColumn = columnOf(rows[0], "PMCompliance");
+    const budgetColumn = columnOf(rows[0], "BudgetSpend");
+    const uptimeColumn = columnOf(rows[0], "FacilityUptime");
+    const ytdRow = rows[rows.length - 2];
+
+    // PM Compliance keeps formatPrecisePercent (untouched).
+    expect(ytdRow[pmColumn]).toBe("99.996%");
+    // Facility Uptime keeps the PR #427 rule (untouched).
+    expect(ytdRow[uptimeColumn]).toBe("99.99%");
+    // Budget Spend still rounds to a whole percent (untouched).
+    expect(ytdRow[budgetColumn]).toBe("79%");
   });
 });

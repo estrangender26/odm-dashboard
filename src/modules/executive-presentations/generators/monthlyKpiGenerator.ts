@@ -35,6 +35,7 @@ import type {
 import { writeNotesSituationReadout } from "../framework/readoutText";
 import { cleanMonthlyKpiPresentationZip } from "../framework/presentationCleanup";
 import { formatFacilityUptimePercent } from "@/modules/monthly-kpi/facilityUptimeDisplay";
+import { formatMttrDaysDisplay } from "@/modules/monthly-kpi/mttrDisplay";
 import { buildExecutiveReadoutLines } from "../../monthly-kpi/executiveReadout";
 import {
   evaluateKpiStatus,
@@ -177,7 +178,12 @@ function formatPrecisePercent(value: number): string {
 
 function formatDisplayValue(key: ScorecardKpiKey, value: number | null): string {
   if (!isPresentNumber(value)) return "";
-  if (key === "mttrDays") return String(Math.round(value));
+  if (key === "mttrDays") {
+    // MTTR display rule: at most two decimals, no redundant trailing zeros, and
+    // whole numbers stay whole — 0.666666... reads as "0.67", never "1".
+    // Covers the monthly cells, the YTD row and the Slide 2/3 value lists.
+    return formatMttrDaysDisplay(value);
+  }
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     const pct = String(Math.round(value));
     const cmShare = 100 - value;

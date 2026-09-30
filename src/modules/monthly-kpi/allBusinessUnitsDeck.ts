@@ -65,6 +65,7 @@ import {
 } from "../executive-presentations/framework/readoutText";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
 import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
+import { formatMttrDaysDisplay } from "./mttrDisplay";
 import { cleanMonthlyKpiPresentationZip } from "../executive-presentations/framework/presentationCleanup";
 import type { ReadoutLine } from "../executive-presentations/framework/readoutText";
 import type { ScorecardKpiKey } from "./types";
@@ -205,7 +206,11 @@ export function formatScorecardCell(
   value: number | null | undefined
 ): string {
   if (!isPresentNumber(value)) return "";
-  if (key === "mttrDays") return String(Math.round(value));
+  if (key === "mttrDays") {
+    // MTTR display rule: at most two decimals, no redundant trailing zeros, and
+    // whole numbers stay whole — 0.666666... reads as "0.67", never "1".
+    return formatMttrDaysDisplay(value);
+  }
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     const pct = Math.round(value);
     const cmShare = 100 - value;
