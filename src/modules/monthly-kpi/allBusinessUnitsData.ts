@@ -33,6 +33,7 @@ import {
   getDefaultMonthlyKpiThresholdConfig,
 } from "./kpiThresholds";
 import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
+import { formatMttrDaysWithUnit } from "./mttrDisplay";
 
 export const ALL_BUSINESS_UNITS_LABEL = "All Business Units";
 
@@ -172,7 +173,7 @@ export function normalizeStoredCommentary(
 
 function formatValue(key: ScorecardKpiKey2, value: number | null): string {
   if (!isPresentNumber(value)) return "No Data";
-  if (key === "mttrDays") return `${value.toFixed(2)} days`;
+  if (key === "mttrDays") return formatMttrDaysWithUnit(value);
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     if (value >= 100) return "No CM";
     const cmShare = 100 - value;

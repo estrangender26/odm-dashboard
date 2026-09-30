@@ -674,11 +674,13 @@ describe("generateMonthlyKpiPresentation", () => {
     expect(matrix.some((row) => row.includes("96%"))).toBe(true);
     expect(matrix.some((row) => row.includes("84% (5.4:1)"))).toBe(true);
     expect(matrix.some((row) => row.includes("75% (3.0:1)"))).toBe(true);
-    expect(matrix.some((row) => row.includes("64"))).toBe(true);
+    // MTTR is no longer rounded to whole days: 63.64 now displays its two
+    // decimals instead of collapsing to "64".
+    expect(matrix.some((row) => row.includes("63.64"))).toBe(true);
     expect(matrix.some((row) => row.includes("100%"))).toBe(true);
     // PM Compliance preserves authoritative decimals (98.38%, not 98%).
     expect(xml).toContain("98.38%");
-    expect(xml).not.toContain("63.64");
+    expect(xml).toContain("63.64");
   });
 
   it("rounds KPI values for executive display on Slide 2", async () => {

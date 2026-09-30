@@ -65,6 +65,7 @@ import {
 } from "../executive-presentations/framework/readoutText";
 import { buildExecutiveReadoutLines } from "./executiveReadout";
 import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
+import { formatMttrDays } from "./mttrDisplay";
 import { cleanMonthlyKpiPresentationZip } from "../executive-presentations/framework/presentationCleanup";
 import type { ReadoutLine } from "../executive-presentations/framework/readoutText";
 import type { ScorecardKpiKey } from "./types";
@@ -205,7 +206,9 @@ export function formatScorecardCell(
   value: number | null | undefined
 ): string {
   if (!isPresentNumber(value)) return "";
-  if (key === "mttrDays") return String(Math.round(value));
+  // MTTR (days) keeps up to two decimals; whole days stay whole. Monthly rows
+  // and the YTD row share this one formatter so they cannot diverge.
+  if (key === "mttrDays") return formatMttrDays(value);
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     const pct = Math.round(value);
     const cmShare = 100 - value;
