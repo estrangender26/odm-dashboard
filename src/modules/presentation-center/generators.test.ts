@@ -460,7 +460,9 @@ describe("Monthly KPI presentation generator", () => {
     expect(rows[2][2]).toBe("100.00%");
     expect(rows[2][3]).toBe("88.00% (7.3:1)");
     expect(rows[2][4]).toBe("60.00% (1.5:1)");
-    expect(rows[2][5]).toBe("3.00 days");
+    // MTTR keeps up to two decimals and trims needless trailing zeros, so a
+    // whole 3 renders as "3 days" (never "3.00 days").
+    expect(rows[2][5]).toBe("3 days");
     expect(rows[3][2]).toBe("No Data");
     expect(rows[5][1]).toBe("50.00%");
     expect(rows[7][1]).toBe("No Data");

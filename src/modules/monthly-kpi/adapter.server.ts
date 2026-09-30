@@ -19,6 +19,7 @@ import {
 import { buildAllBusinessUnitsDeckData, normalizeStoredCommentary } from "./allBusinessUnitsData";
 import { generateAllBusinessUnitsMonthlyKpiDeck } from "./allBusinessUnitsDeck";
 import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
+import { formatMttrDaysWithUnit } from "./mttrDisplay";
 import {
   evaluateKpiStatus,
   formatThresholdBenchmark,
@@ -65,7 +66,7 @@ function isPresentNumber(value: number | null | undefined): value is number {
 
 function formatMetricValue(key: ScorecardKpiKey, value: number | null): string {
   if (!isPresentNumber(value)) return "No Data";
-  if (key === "mttrDays") return `${value.toFixed(2)} days`;
+  if (key === "mttrDays") return formatMttrDaysWithUnit(value);
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     if (value >= 100) return "No CM";
     const cmShare = 100 - value;

@@ -27,6 +27,7 @@
  */
 
 import { formatFacilityUptimePercent } from "./facilityUptimeDisplay";
+import { formatMttrDaysWithUnit } from "./mttrDisplay";
 import {
   evaluateKpiStatus,
   getDefaultMonthlyKpiThresholdConfig,
@@ -85,7 +86,7 @@ function round2(value: number): string {
 
 export function formatExecutiveKpiValue(key: ScorecardKpiKey, value: number | null): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "no data";
-  if (key === "mttrDays") return `${round2(value)} days`;
+  if (key === "mttrDays") return formatMttrDaysWithUnit(value);
   if (key === "pmCmWorkOrderRatio" || key === "pmCmCostRatio") {
     return value >= 100 ? "No CM" : `${value.toFixed(1)}%`;
   }

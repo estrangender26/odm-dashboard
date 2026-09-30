@@ -31,6 +31,10 @@ import {
   type KpiRecord,
   type MonthlyKpiScorecardDataset,
 } from "./scorecardData";
+import {
+  formatMttrDays,
+  formatMttrDaysWithUnit,
+} from "@/modules/monthly-kpi/mttrDisplay";
 
 type PresentationSlide = Parameters<typeof createPresentation>[0][number];
 type PresentationElement = PresentationSlide["elements"][number];
@@ -138,7 +142,7 @@ function formatMetricValue(
   value: number | null | undefined
 ) {
   if (!isPresentNumber(value)) return "No Data";
-  if (metric === "mttrDays") return `${value.toFixed(2)} days`;
+  if (metric === "mttrDays") return formatMttrDaysWithUnit(value);
   if (metric === "pmCmWorkOrderRatio" || metric === "pmCmCostRatio") {
     return `${formatPercent(value)} (${formatPmCmEquivalentRatio(value)})`;
   }
@@ -147,7 +151,7 @@ function formatMetricValue(
 
 function formatCardValue(metric: KpiMetric, value: number | null | undefined) {
   if (!isPresentNumber(value)) return "No Data";
-  if (metric === "mttrDays") return value.toFixed(2);
+  if (metric === "mttrDays") return formatMttrDays(value);
   return `${value.toFixed(2)}%`;
 }
 
