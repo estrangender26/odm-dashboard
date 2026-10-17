@@ -12,7 +12,7 @@ export interface WebSearchResponse {
 
 const MAX_QUERY_LENGTH = 500;
 const DEFAULT_RESULT_LIMIT = 4;
-const SUPPORTED_PROVIDERS = new Set(["tavily", "serper", "brave"]);
+const SUPPORTED_PROVIDERS = new Set(["tavily", "serper", "brave", "parallel"]);
 
 class WebSearchProviderError extends Error {
   status?: number;
@@ -109,6 +109,7 @@ export function getWebSearchProvider(): string {
 export function getWebSearchApiKey(
   provider = getWebSearchProvider()
 ): string | undefined {
+  if (provider === "parallel") return undefined;
   const genericKey = process.env.WEB_SEARCH_API_KEY?.trim();
   if (genericKey) return genericKey;
 
@@ -118,7 +119,7 @@ export function getWebSearchApiKey(
 }
 
 export function isWebSearchConfigured(): boolean {
-  return Boolean(getWebSearchApiKey());
+  return getWebSearchProvider() === "parallel" || Boolean(getWebSearchApiKey());
 }
 
 export function formatWebSearchResultsForPrompt(
@@ -177,10 +178,12 @@ function normalizeResult(raw: any): WebSearchResult | null {
 async function tavilySearch(
   query: string,
   apiKey: string,
-  limit: number
+  limit: number,
+  signal?: AbortSignal
 ): Promise<WebSearchResult[]> {
   const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
@@ -209,10 +212,12 @@ async function tavilySearch(
 async function serperSearch(
   query: string,
   apiKey: string,
-  limit: number
+  limit: number,
+  signal?: AbortSignal
 ): Promise<WebSearchResult[]> {
   const response = await fetch("https://google.serper.dev/search", {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-API-KEY": apiKey,
@@ -236,13 +241,15 @@ async function serperSearch(
 async function braveSearch(
   query: string,
   apiKey: string,
-  limit: number
+  limit: number,
+  signal?: AbortSignal
 ): Promise<WebSearchResult[]> {
   const url = new URL("https://api.search.brave.com/res/v1/web/search");
   url.searchParams.set("q", query);
   url.searchParams.set("count", String(limit));
 
   const response = await fetch(url, {
+    signal,
     headers: {
       Accept: "application/json",
       "X-Subscription-Token": apiKey,
@@ -264,11 +271,12 @@ async function braveSearch(
 
 export async function webSearch(
   query: string,
-  limit = DEFAULT_RESULT_LIMIT
+  limit = DEFAULT_RESULT_LIMIT,
+  signal?: AbortSignal
 ): Promise<WebSearchResponse> {
   const provider = getWebSearchProvider();
   const apiKey = getWebSearchApiKey(provider);
-  if (!apiKey) {
+  if (provider !== "parallel" && !apiKey) {
     const error = new Error(
       "Live web search is not configured for this deployment."
     );
@@ -284,12 +292,17 @@ export async function webSearch(
 
   try {
     let results: WebSearchResult[];
-    if (provider === "serper") {
-      results = await serperSearch(safeQuery, apiKey, safeLimit);
+    if (provider === "parallel") {
+      const { parallelSearch } = await import("./parallel-search");
+      results = (await parallelSearch(safeQuery, signal))
+        .map(normalizeResult)
+        .filter((result): result is WebSearchResult => result !== null);
+    } else if (provider === "serper") {
+      results = await serperSearch(safeQuery, apiKey!, safeLimit, signal);
     } else if (provider === "brave") {
-      results = await braveSearch(safeQuery, apiKey, safeLimit);
+      results = await braveSearch(safeQuery, apiKey!, safeLimit, signal);
     } else {
-      results = await tavilySearch(safeQuery, apiKey, safeLimit);
+      results = await tavilySearch(safeQuery, apiKey!, safeLimit, signal);
     }
 
     return { provider, results: results.slice(0, safeLimit) };
