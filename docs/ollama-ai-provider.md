@@ -107,6 +107,12 @@ curl -X POST "http://localhost:3000/api/trpc/ai.maintenanceChat" \
   -d '{"json":{"message":"What is cavitation?"}}'
 ```
 
+## Optional live web search
+
+Current-information questions can use the optional
+[Parallel web-search provider](./parallel-web-search.md) without a search API key.
+The conversational model configuration above is still required.
+
 ## Security Notes
 
 - `OLLAMA_API_KEY` is read server-side only and never sent to the browser.
