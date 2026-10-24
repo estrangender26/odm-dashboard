@@ -1,0 +1,51 @@
+name: Apply Monthly KPI import fix
+
+on:
+  push:
+    branches:
+      - fix/monthly-kpi-import-persistence-modal
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/monthly-kpi-import-persistence-modal
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dry-run guarded source patch
+        run: node scripts/apply-monthly-kpi-import-fix.mjs --check
+
+      - name: Apply guarded source patch
+        run: node scripts/apply-monthly-kpi-import-fix.mjs --write
+
+      - name: Run Monthly KPI regression tests
+        run: npx vitest run api/monthly-kpi-import-roundtrip.test.ts api/monthly-kpi-presentation.test.ts api/monthly-kpi-records.test.ts src/modules/monthly-kpi/kpiAggregation.test.ts
+
+      - name: Remove temporary patch tooling and commit validated fix
+        shell: bash
+        run: |
+          rm scripts/apply-monthly-kpi-import-fix.mjs
+          rm .github/workflows/apply-monthly-kpi-import-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: persist Monthly KPI imports across refresh"
+          git push origin HEAD:fix/monthly-kpi-import-persistence-modal
